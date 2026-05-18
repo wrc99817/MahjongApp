@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>麻将记账 APP 原型</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <svg class="icon-sprite" aria-hidden="true">
+      <symbol id="icon-game" viewBox="0 0 24 24">
+        <path d="M5 7.25A2.25 2.25 0 0 1 7.25 5h9.5A2.25 2.25 0 0 1 19 7.25v9.5A2.25 2.25 0 0 1 16.75 19h-9.5A2.25 2.25 0 0 1 5 16.75v-9.5Z" />
+        <path d="M8.5 9.25h7M8.5 12h7M8.5 14.75h4.5" />
+      </symbol>
+      <symbol id="icon-stats" viewBox="0 0 24 24">
+        <path d="M4.5 18.5h15" />
+        <path d="M6.5 15.5v-5M12 15.5v-9M17.5 15.5v-7" />
+      </symbol>
+      <symbol id="icon-friends" viewBox="0 0 24 24">
+        <path d="M9.5 11.25a3.25 3.25 0 1 0 0-6.5 3.25 3.25 0 0 0 0 6.5Z" />
+        <path d="M3.75 19.25c.55-3.05 2.58-5 5.75-5s5.2 1.95 5.75 5" />
+        <path d="M16.25 11.5a2.75 2.75 0 1 0 0-5.5" />
+        <path d="M16.75 14.5c2.08.36 3.33 1.95 3.75 4.5" />
+      </symbol>
+      <symbol id="icon-mine" viewBox="0 0 24 24">
+        <path d="M12 12.25a3.75 3.75 0 1 0 0-7.5 3.75 3.75 0 0 0 0 7.5Z" />
+        <path d="M5.25 19.25c.72-3.25 3.05-5 6.75-5s6.03 1.75 6.75 5" />
+      </symbol>
+      <symbol id="icon-add" viewBox="0 0 24 24">
+        <path d="M12 5.5v13M5.5 12h13" />
+      </symbol>
+      <symbol id="icon-back" viewBox="0 0 24 24">
+        <path d="M14.5 6.5 9 12l5.5 5.5" />
+      </symbol>
+    </svg>
+
+    <main class="prototype-board" aria-label="麻将记账 APP Web 原型">
+      <section class="phone" data-screen="game" id="game-screen">
+        <div class="screen-scroll">
+          <div class="status-bar">
+            <span>20:08</span>
+            <span>5G  86%</span>
+          </div>
+
+          <header class="page-header" data-review-id="game-header">
+            <div>
+              <p class="eyebrow">当前进行中</p>
+              <h1>今晚南山局</h1>
+            </div>
+            <button class="icon-button" aria-label="编辑牌局">编</button>
+          </header>
+
+          <section class="game-setup" data-review-id="game-setup">
+            <div class="section-title">
+              <h2>参与人和入场金额</h2>
+            </div>
+            <div class="player-chips">
+              <button>我 <em>200</em></button>
+              <button>阿林 <em>200</em></button>
+              <button>老周 <em>200</em></button>
+              <button>小何 <em>200</em></button>
+            </div>
+            <div class="game-actions" data-review-id="game-actions">
+              <button class="secondary-action compact-action">编辑</button>
+              <a class="settle-link" href="#settlement-screen" data-review-id="settle-current-game">结算</a>
+            </div>
+          </section>
+
+          <section class="balance-board" data-review-id="balance-board">
+            <div class="section-title">
+              <h2>当前账面</h2>
+              <span>总入场 800</span>
+            </div>
+            <div class="balance-grid">
+              <article>
+                <span>我</span>
+                <strong class="positive">+56</strong>
+              </article>
+              <article>
+                <span>阿林</span>
+                <strong class="positive">+24</strong>
+              </article>
+              <article>
+                <span>老周</span>
+                <strong class="negative">-48</strong>
+              </article>
+              <article>
+                <span>小何</span>
+                <strong class="negative">-32</strong>
+              </article>
+            </div>
+          </section>
+
+          <section class="entry-panel" data-review-id="entry-panel">
+            <div class="section-title">
+              <h2>记账输入</h2>
+            </div>
+            <div class="entry-tabs">
+              <button class="selected">单家收分</button>
+              <button>AA 开销</button>
+              <button>手动调整</button>
+            </div>
+            <div class="entry-form">
+              <label>
+                <span>收分玩家</span>
+                <input value="我" readonly />
+              </label>
+              <label>
+                <span>金额</span>
+                <input value="56" readonly />
+              </label>
+            </div>
+            <button class="primary-action compact-action">记一笔</button>
+          </section>
+
+          <section class="section-block flow-block" data-review-id="cashflow-history">
+            <div class="section-title">
+              <h2>进出账历史</h2>
+              <button>筛选</button>
+            </div>
+            <div class="list">
+              <article class="list-row">
+                <div>
+                  <h3>我 单家收分</h3>
+                  <p>20:02 · 老周 -28，小何 -28</p>
+                </div>
+                <strong class="positive">+56</strong>
+              </article>
+              <article class="list-row">
+                <div>
+                  <h3>茶水 AA</h3>
+                  <p>19:48 · 4 人平摊</p>
+                </div>
+                <strong class="negative">-12</strong>
+              </article>
+              <article class="list-row">
+                <div>
+                  <h3>手动调整</h3>
+                  <p>19:36 · 修正阿林入账</p>
+                </div>
+                <strong class="positive">+20</strong>
+              </article>
+              <article class="list-row">
+                <div>
+                  <h3>阿林 单家收分</h3>
+                  <p>19:20 · 我 -12，老周 -12</p>
+                </div>
+                <strong class="positive">+24</strong>
+              </article>
+            </div>
+          </section>
+        </div>
+
+        <nav class="glass-nav" data-review-id="bottom-glass-nav" aria-label="底部导航">
+          <button class="nav-item active"><svg><use href="#icon-game" /></svg><em>牌局</em></button>
+          <button class="nav-item"><svg><use href="#icon-stats" /></svg><em>统计</em></button>
+          <button class="nav-add" data-review-id="center-add-button" aria-label="添加牌局"><svg><use href="#icon-add" /></svg></button>
+          <button class="nav-item"><svg><use href="#icon-friends" /></svg><em>牌友</em></button>
+          <button class="nav-item"><svg><use href="#icon-mine" /></svg><em>我的</em></button>
+        </nav>
+      </section>
+
+      <section class="phone" data-screen="settlement" id="settlement-screen">
+        <div class="screen-scroll">
+          <div class="status-bar">
+            <span>20:08</span>
+            <span>5G  86%</span>
+          </div>
+
+          <header class="page-header" data-review-id="settlement-header">
+            <div class="back-title">
+              <a class="back-button" href="#game-screen" aria-label="返回牌局"><svg><use href="#icon-back" /></svg></a>
+              <h1>今晚南山局</h1>
+            </div>
+          </header>
+
+          <section class="winner-card" data-review-id="winner-card">
+            <span>大赢家</span>
+            <h2>我</h2>
+            <strong class="positive">+56</strong>
+            <p>本场净赢最高，当前账面已平衡</p>
+          </section>
+
+          <section class="section-block" data-review-id="settlement-summary">
+            <div class="section-title">
+              <h2>整场统计</h2>
+              <span>4 人 · 2.4h</span>
+            </div>
+            <div class="settlement-grid">
+              <article><span>总入场</span><strong>800</strong></article>
+              <article><span>流水</span><strong>16 笔</strong></article>
+              <article><span>AA 开销</span><strong>48</strong></article>
+              <article><span>调整</span><strong>2 笔</strong></article>
+            </div>
+          </section>
+
+          <section class="section-block" data-review-id="payable-list">
+            <div class="section-title">
+              <h2>应收应付</h2>
+            </div>
+            <div class="list">
+              <article class="list-row">
+                <div><h3>老周 付给 我</h3><p>结清后老周账面归零</p></div>
+                <strong>48</strong>
+              </article>
+              <article class="list-row">
+                <div><h3>小何 付给 我</h3><p>结清后小何账面归零</p></div>
+                <strong>8</strong>
+              </article>
+              <article class="list-row">
+                <div><h3>小何 付给 阿林</h3><p>补齐阿林应收</p></div>
+                <strong>24</strong>
+              </article>
+            </div>
+          </section>
+
+          <div class="settlement-actions" data-review-id="settlement-actions">
+            <button class="secondary-action">封账</button>
+            <a class="primary-action action-link" href="#game-screen">返回牌局</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="phone" data-screen="stats">
+        <div class="screen-scroll">
+          <div class="status-bar">
+            <span>20:08</span>
+            <span>5G  86%</span>
+          </div>
+
+          <header class="page-header" data-review-id="stats-header">
+            <div>
+              <p class="eyebrow">复盘</p>
+              <h1>统计</h1>
+            </div>
+            <button class="icon-button" aria-label="筛选">筛</button>
+          </header>
+
+          <div class="segmented" data-review-id="time-segmented">
+            <button class="selected">本周</button>
+            <button>本月</button>
+            <button>全部</button>
+            <button>历史牌局</button>
+          </div>
+
+          <section class="summary-panel" data-review-id="stats-summary">
+            <div>
+              <p>总输赢</p>
+              <strong class="positive">+368</strong>
+            </div>
+            <div>
+              <p>胜率</p>
+              <strong>62%</strong>
+            </div>
+            <div>
+              <p>牌局数</p>
+              <strong>18</strong>
+            </div>
+          </section>
+
+          <section class="chart-panel" data-review-id="trend-chart">
+            <div class="section-title">
+              <h2>近期走势</h2>
+              <span>7 天</span>
+            </div>
+            <div class="chart">
+              <i style="height: 28%"></i>
+              <i style="height: 46%"></i>
+              <i style="height: 36%"></i>
+              <i style="height: 68%"></i>
+              <i style="height: 52%"></i>
+              <i style="height: 76%"></i>
+              <i style="height: 64%"></i>
+            </div>
+          </section>
+
+          <section class="section-block" data-review-id="stats-partners">
+            <div class="section-title">
+              <h2>跟谁打胜率最高</h2>
+            </div>
+            <div class="list compact">
+              <article class="list-row">
+                <div><h3>阿林</h3><p>同桌 16 次</p></div>
+                <strong>72%</strong>
+              </article>
+              <article class="list-row">
+                <div><h3>陈姐</h3><p>同桌 9 次</p></div>
+                <strong>64%</strong>
+              </article>
+            </div>
+          </section>
+
+          <section class="section-block" data-review-id="history-games">
+            <div class="section-title">
+              <h2>历史牌局</h2>
+              <button>查看更多</button>
+            </div>
+            <div class="history-list">
+              <article class="history-card">
+                <div class="history-head">
+                  <div>
+                    <h3>今晚南山局</h3>
+                    <p>赢家：我 +56</p>
+                  </div>
+                  <strong>4 人</strong>
+                </div>
+                <div class="entry-tags">
+                  <span>我 200</span>
+                  <span>阿林 200</span>
+                  <span>老周 200</span>
+                  <span>小何 200</span>
+                </div>
+              </article>
+              <article class="history-card">
+                <div class="history-head">
+                  <div>
+                    <h3>周六家庭局</h3>
+                    <p>赢家：表哥 +88</p>
+                  </div>
+                  <strong>4 人</strong>
+                </div>
+                <div class="entry-tags">
+                  <span>我 100</span>
+                  <span>爸 100</span>
+                  <span>妈 100</span>
+                  <span>表哥 100</span>
+                </div>
+              </article>
+            </div>
+          </section>
+        </div>
+
+        <nav class="glass-nav" aria-label="底部导航">
+          <button class="nav-item"><svg><use href="#icon-game" /></svg><em>牌局</em></button>
+          <button class="nav-item active"><svg><use href="#icon-stats" /></svg><em>统计</em></button>
+          <button class="nav-add" aria-label="添加牌局"><svg><use href="#icon-add" /></svg></button>
+          <button class="nav-item"><svg><use href="#icon-friends" /></svg><em>牌友</em></button>
+          <button class="nav-item"><svg><use href="#icon-mine" /></svg><em>我的</em></button>
+        </nav>
+      </section>
+
+      <section class="phone" data-screen="friends">
+        <div class="screen-scroll">
+          <div class="status-bar">
+            <span>20:08</span>
+            <span>5G  86%</span>
+          </div>
+
+          <header class="page-header" data-review-id="friends-header">
+            <div>
+              <p class="eyebrow">牌友关系</p>
+              <h1>牌友</h1>
+            </div>
+            <button class="icon-button" aria-label="新增牌友">+</button>
+          </header>
+
+          <label class="search-field" data-review-id="friend-search">
+            <span>搜</span>
+            <input value="搜索牌友或牌局" aria-label="搜索牌友或牌局" readonly />
+          </label>
+
+          <section class="section-block" data-review-id="friend-list">
+            <div class="list friend-list">
+              <article class="friend-row">
+                <div class="avatar">林</div>
+                <div>
+                  <h3>阿林</h3>
+                  <p>对局 28 次 · 同桌胜率 72%</p>
+                </div>
+                <strong class="positive">+216</strong>
+              </article>
+              <article class="friend-row">
+                <div class="avatar">周</div>
+                <div>
+                  <h3>老周</h3>
+                  <p>对局 19 次 · 同桌胜率 48%</p>
+                </div>
+                <strong class="negative">-68</strong>
+              </article>
+              <article class="friend-row">
+                <div class="avatar">陈</div>
+                <div>
+                  <h3>陈姐</h3>
+                  <p>对局 14 次 · 同桌胜率 64%</p>
+                </div>
+                <strong class="positive">+84</strong>
+              </article>
+            </div>
+          </section>
+        </div>
+
+        <nav class="glass-nav" aria-label="底部导航">
+          <button class="nav-item"><svg><use href="#icon-game" /></svg><em>牌局</em></button>
+          <button class="nav-item"><svg><use href="#icon-stats" /></svg><em>统计</em></button>
+          <button class="nav-add" aria-label="添加牌局"><svg><use href="#icon-add" /></svg></button>
+          <button class="nav-item active"><svg><use href="#icon-friends" /></svg><em>牌友</em></button>
+          <button class="nav-item"><svg><use href="#icon-mine" /></svg><em>我的</em></button>
+        </nav>
+      </section>
+
+      <section class="phone" data-screen="mine">
+        <div class="screen-scroll">
+          <div class="status-bar">
+            <span>20:08</span>
+            <span>5G  86%</span>
+          </div>
+
+          <header class="page-header" data-review-id="mine-header">
+            <div>
+              <p class="eyebrow">账户与数据</p>
+              <h1>我的</h1>
+            </div>
+            <button class="icon-button" aria-label="设置">设</button>
+          </header>
+
+          <section class="profile-panel" data-review-id="account-card">
+            <div class="profile-mark">我</div>
+            <div>
+              <h2>麻将账本</h2>
+              <p>管理数据、导出账本和查看在线模式设置</p>
+            </div>
+          </section>
+
+          <section class="settings-list" data-review-id="settings-list">
+            <button><span>本地备份</span><em>今晚 20:08</em></button>
+            <button><span>导出账本</span><em>CSV / Excel</em></button>
+            <button><span>数据管理</span><em>清理与恢复</em></button>
+            <button><span>在线模式设置</span><em>同步与共享</em></button>
+            <button><span>关于</span><em>v0.1</em></button>
+          </section>
+        </div>
+
+        <nav class="glass-nav" aria-label="底部导航">
+          <button class="nav-item"><svg><use href="#icon-game" /></svg><em>牌局</em></button>
+          <button class="nav-item"><svg><use href="#icon-stats" /></svg><em>统计</em></button>
+          <button class="nav-add" aria-label="添加牌局"><svg><use href="#icon-add" /></svg></button>
+          <button class="nav-item"><svg><use href="#icon-friends" /></svg><em>牌友</em></button>
+          <button class="nav-item active"><svg><use href="#icon-mine" /></svg><em>我的</em></button>
+        </nav>
+      </section>
+
+      <section class="phone sheet-demo" data-screen="create-sheet">
+        <div class="screen-dim">
+          <div class="status-bar">
+            <span>20:08</span>
+            <span>5G  86%</span>
+          </div>
+          <header class="page-header">
+            <div>
+              <h1>牌局</h1>
+            </div>
+            <button class="icon-button">编</button>
+          </header>
+        </div>
+
+        <section class="bottom-sheet" data-review-id="create-game-sheet">
+          <div class="sheet-handle"></div>
+          <h2>新建牌局</h2>
+          <label>
+            <span>牌局名称</span>
+            <input value="今天的牌局" />
+          </label>
+          <div class="offline-player-form" data-review-id="offline-player-form">
+            <span>离线模式参与人</span>
+            <div class="player-edit-row">
+              <input value="我" />
+              <input value="200" />
+            </div>
+            <div class="player-edit-row">
+              <input value="阿林" />
+              <input value="200" />
+            </div>
+            <div class="player-edit-row">
+              <input value="老周" />
+              <input value="200" />
+            </div>
+            <div class="player-edit-row">
+              <input value="小何" />
+              <input value="200" />
+            </div>
+          </div>
+          <div class="form-grid">
+            <label><span>计分方式</span><input value="按金额" readonly /></label>
+            <label><span>底分</span><input value="10" readonly /></label>
+          </div>
+          <button class="primary-action" data-review-id="start-game-button">开始记账</button>
+        </section>
+
+        <nav class="glass-nav" aria-label="底部导航">
+          <button class="nav-item active"><svg><use href="#icon-game" /></svg><em>牌局</em></button>
+          <button class="nav-item"><svg><use href="#icon-stats" /></svg><em>统计</em></button>
+          <button class="nav-add" aria-label="添加牌局"><svg><use href="#icon-add" /></svg></button>
+          <button class="nav-item"><svg><use href="#icon-friends" /></svg><em>牌友</em></button>
+          <button class="nav-item"><svg><use href="#icon-mine" /></svg><em>我的</em></button>
+        </nav>
+      </section>
+    </main>
+  </body>
+</html>
