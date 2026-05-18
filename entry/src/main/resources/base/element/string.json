@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "app_name",
+      "value": "雀账"
+    },
+    {
+      "name": "module_desc",
+      "value": "Mahjong ledger entry module"
+    },
+    {
+      "name": "entry_desc",
+      "value": "Mahjong ledger main ability"
+    }
+  ]
+}

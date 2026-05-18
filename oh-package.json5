@@ -1,0 +1,13 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "mahjong-ledger",
+  "version": "1.0.0",
+  "description": "纯血鸿蒙麻将好友群组同步记账 App",
+  "main": "",
+  "author": "Codex",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hvigor-ohos-plugin": "5.0.0"
+  }
+}
