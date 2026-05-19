@@ -33,17 +33,41 @@ export class InMemoryLedgerRepository implements LedgerRepository {
     const session = new GameSession('s_demo', group.id, '今晚南山局', 1, '手动记账 MVP 示例', this.users.map((item: User) => item.id), now() - 3600000, 'synced');
     this.sessions.push(session);
     this.rounds.push(new RoundRecord('r_demo_1', session.id, 1, {
-      'u_host': 40,
-      'u_lin': -10,
-      'u_qi': -20,
-      'u_yan': -10
-    }, '自摸后手动录入', this.user.id, now() - 3200000, 'synced'));
+      'u_host': 48,
+      'u_lin': -16,
+      'u_qi': -16,
+      'u_yan': -16
+    }, '20:18 我自摸，三家各付 16', this.user.id, now() - 3200000, 'synced'));
     this.rounds.push(new RoundRecord('r_demo_2', session.id, 2, {
-      'u_host': -30,
-      'u_lin': 50,
+      'u_host': -15,
+      'u_lin': 45,
+      'u_qi': -15,
+      'u_yan': -15
+    }, '20:05 包间费 60，阿林垫付，4 人平摊', this.user.id, now() - 2800000, 'synced'));
+    this.rounds.push(new RoundRecord('r_demo_3', session.id, 3, {
+      'u_host': 24,
+      'u_lin': 0,
+      'u_qi': -24,
+      'u_yan': 0
+    }, '19:52 老周点炮给我', this.user.id, now() - 2400000, 'synced'));
+    this.rounds.push(new RoundRecord('r_demo_4', session.id, 4, {
+      'u_host': -12,
+      'u_lin': -12,
+      'u_qi': -12,
+      'u_yan': 36
+    }, '19:37 小何杠上开花，三家各付 12', this.user.id, now() - 2000000, 'synced'));
+    this.rounds.push(new RoundRecord('r_demo_5', session.id, 5, {
+      'u_host': 30,
+      'u_lin': -10,
       'u_qi': -10,
       'u_yan': -10
-    }, '点炮后手动录入', this.user.id, now() - 2800000, 'synced'));
+    }, '19:20 茶水 40，我垫付，4 人平摊', this.user.id, now() - 1600000, 'synced'));
+    this.rounds.push(new RoundRecord('r_demo_6', session.id, 6, {
+      'u_host': 10,
+      'u_lin': -10,
+      'u_qi': 0,
+      'u_yan': 0
+    }, '19:10 修正阿林入场金额', this.user.id, now() - 1200000, 'synced'));
   }
 
   currentUser(): User {
