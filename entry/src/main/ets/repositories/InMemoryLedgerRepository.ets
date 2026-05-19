@@ -15,8 +15,8 @@ export class InMemoryLedgerRepository implements LedgerRepository {
   private users: User[] = [
     new User('u_host', '我', '#126A50'),
     new User('u_lin', '阿林', '#C43E32'),
-    new User('u_qi', '小齐', '#2A6FB3'),
-    new User('u_yan', '燕子', '#D2902F')
+    new User('u_qi', '老周', '#2A6FB3'),
+    new User('u_yan', '小何', '#D2902F')
   ];
   private groups: Group[] = [];
   private members: GroupMember[] = [];
@@ -30,7 +30,7 @@ export class InMemoryLedgerRepository implements LedgerRepository {
     for (let index = 0; index < this.users.length; index++) {
       this.members.push(new GroupMember(group.id, this.users[index].id, index === 0 ? 'owner' : 'member', group.createdAt));
     }
-    const session = new GameSession('s_demo', group.id, '5月18日东风局', 1, '手动记账 MVP 示例', this.users.map((item: User) => item.id), now() - 3600000, 'synced');
+    const session = new GameSession('s_demo', group.id, '今晚南山局', 1, '手动记账 MVP 示例', this.users.map((item: User) => item.id), now() - 3600000, 'synced');
     this.sessions.push(session);
     this.rounds.push(new RoundRecord('r_demo_1', session.id, 1, {
       'u_host': 40,
