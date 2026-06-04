@@ -1,4 +1,4 @@
-import { GameSession, Group, GroupMember, LedgerOperation, RoundRecord, User } from '../common/Models';
+import { GameSession, Group, GroupMember, LedgerOperation, OperationType, RoundRecord, User } from '../common/Models';
 import { LedgerRepository } from './LedgerRepository';
 import { validateRound } from '../services/Money';
 
@@ -13,10 +13,7 @@ function makeId(prefix: string): string {
 export class InMemoryLedgerRepository implements LedgerRepository {
   private user: User = new User('u_host', '我', '#126A50');
   private users: User[] = [
-    new User('u_host', '我', '#126A50'),
-    new User('u_lin', '阿林', '#C43E32'),
-    new User('u_qi', '老周', '#2A6FB3'),
-    new User('u_yan', '小何', '#D2902F')
+    new User('u_host', '我', '#126A50')
   ];
   private groups: Group[] = [];
   private members: GroupMember[] = [];
@@ -25,49 +22,11 @@ export class InMemoryLedgerRepository implements LedgerRepository {
   private operations: LedgerOperation[] = [];
 
   constructor() {
-    const group = new Group('g_demo', '周末麻将账本', this.user.id, 'MJ2026', now() - 86400000, 'synced');
+    const group = new Group('g_demo', '本地麻将账本', this.user.id, 'MJ2026', now(), 'synced');
     this.groups.push(group);
     for (let index = 0; index < this.users.length; index++) {
       this.members.push(new GroupMember(group.id, this.users[index].id, index === 0 ? 'owner' : 'member', group.createdAt));
     }
-    const session = new GameSession('s_demo', group.id, '今晚南山局', 1, '手动记账 MVP 示例', this.users.map((item: User) => item.id), now() - 3600000, 'synced');
-    this.sessions.push(session);
-    this.rounds.push(new RoundRecord('r_demo_1', session.id, 1, {
-      'u_host': 48,
-      'u_lin': -16,
-      'u_qi': -16,
-      'u_yan': -16
-    }, '20:18 我自摸，三家各付 16', this.user.id, now() - 3200000, 'synced'));
-    this.rounds.push(new RoundRecord('r_demo_2', session.id, 2, {
-      'u_host': -15,
-      'u_lin': 45,
-      'u_qi': -15,
-      'u_yan': -15
-    }, '20:05 包间费 60，阿林垫付，4 人平摊', this.user.id, now() - 2800000, 'synced'));
-    this.rounds.push(new RoundRecord('r_demo_3', session.id, 3, {
-      'u_host': 24,
-      'u_lin': 0,
-      'u_qi': -24,
-      'u_yan': 0
-    }, '19:52 老周点炮给我', this.user.id, now() - 2400000, 'synced'));
-    this.rounds.push(new RoundRecord('r_demo_4', session.id, 4, {
-      'u_host': -12,
-      'u_lin': -12,
-      'u_qi': -12,
-      'u_yan': 36
-    }, '19:37 小何杠上开花，三家各付 12', this.user.id, now() - 2000000, 'synced'));
-    this.rounds.push(new RoundRecord('r_demo_5', session.id, 5, {
-      'u_host': 30,
-      'u_lin': -10,
-      'u_qi': -10,
-      'u_yan': -10
-    }, '19:20 茶水 40，我垫付，4 人平摊', this.user.id, now() - 1600000, 'synced'));
-    this.rounds.push(new RoundRecord('r_demo_6', session.id, 6, {
-      'u_host': 10,
-      'u_lin': -10,
-      'u_qi': 0,
-      'u_yan': 0
-    }, '19:10 修正阿林入场金额', this.user.id, now() - 1200000, 'synced'));
   }
 
   currentUser(): User {
@@ -107,17 +66,74 @@ export class InMemoryLedgerRepository implements LedgerRepository {
     return group;
   }
 
-  createSession(groupId: string, title: string, basePoint: number, note: string, playerIds: string[]): GameSession {
-    const session = new GameSession(makeId('s'), groupId, title, basePoint, note, playerIds, now(), 'pending');
+  findOrCreateUser(displayName: string): User {
+    const normalized = this.normalizeName(displayName);
+    const existing = this.users.find((item: User) => this.normalizeName(item.displayName) === normalized);
+    if (existing) {
+      return existing;
+    }
+    const user = new User(makeId('u'), displayName.trim(), this.nextAvatarColor());
+    this.users.push(user);
+    if (this.groups.length > 0) {
+      this.members.push(new GroupMember(this.groups[0].id, user.id, 'member', now()));
+      this.enqueue(this.groups[0].id, user.id, 'create_user', JSON.stringify(user));
+    }
+    return user;
+  }
+
+  updateUser(userId: string, displayName: string): User {
+    const userIndex = this.users.findIndex((item: User) => item.id === userId);
+    if (userIndex < 0) {
+      throw new Error('玩家不存在');
+    }
+    const current = this.users[userIndex];
+    const updated = new User(current.id, displayName, current.avatarColor);
+    this.users[userIndex] = updated;
+    if (this.user.id === updated.id) {
+      this.user = updated;
+    }
+    this.enqueue(this.groups.length > 0 ? this.groups[0].id : '', updated.id, 'update_user', JSON.stringify(updated));
+    return updated;
+  }
+
+  createSession(groupId: string, title: string, basePoint: number, note: string, playerIds: string[], buyIns: Record<string, number> = {}): GameSession {
+    const session = new GameSession(makeId('s'), groupId, title, basePoint, note, playerIds.slice(), now(), 'pending', this.cloneBuyIns(buyIns, playerIds));
     this.sessions.unshift(session);
     this.enqueue(groupId, session.id, 'create_session', JSON.stringify(session));
     return session;
+  }
+
+  updateSession(groupId: string, sessionId: string, title: string, basePoint: number, note: string, playerIds: string[], buyIns: Record<string, number>): GameSession {
+    const sessionIndex = this.sessions.findIndex((item: GameSession) => item.id === sessionId);
+    if (sessionIndex < 0) {
+      throw new Error('牌局不存在');
+    }
+    const current = this.sessions[sessionIndex];
+    const updated = new GameSession(current.id, current.groupId, title, basePoint, note, playerIds.slice(), current.createdAt, 'pending', this.cloneBuyIns(buyIns, playerIds), current.status, current.settledAt);
+    this.sessions[sessionIndex] = updated;
+    this.enqueue(groupId, updated.id, 'update_session', JSON.stringify(updated));
+    return updated;
+  }
+
+  settleSession(groupId: string, sessionId: string): GameSession {
+    const sessionIndex = this.sessions.findIndex((item: GameSession) => item.id === sessionId);
+    if (sessionIndex < 0) {
+      throw new Error('牌局不存在');
+    }
+    const current = this.sessions[sessionIndex];
+    const updated = new GameSession(current.id, current.groupId, current.title, current.basePoint, current.note, current.playerIds.slice(), current.createdAt, 'pending', this.cloneBuyIns(current.buyIns, current.playerIds), 'settled', now());
+    this.sessions[sessionIndex] = updated;
+    this.enqueue(groupId, updated.id, 'settle_session', JSON.stringify(updated));
+    return updated;
   }
 
   addRound(groupId: string, sessionId: string, scores: Record<string, number>, note: string): RoundRecord {
     const session = this.sessions.find((item: GameSession) => item.id === sessionId);
     if (!session) {
       throw new Error('牌局不存在');
+    }
+    if (session.status === 'settled') {
+      throw new Error('已封账牌局不能继续记账');
     }
 
     const result = validateRound(session.playerIds, scores);
@@ -143,6 +159,18 @@ export class InMemoryLedgerRepository implements LedgerRepository {
     this.enqueue(groupId, round.id, 'void_round', JSON.stringify(round));
   }
 
+  clearAllData(): void {
+    const groupId = this.groups.length > 0 ? this.groups[0].id : 'g_demo';
+    this.users = [new User('u_host', '我', '#126A50')];
+    this.user = this.users[0];
+    this.groups = [new Group(groupId, '本地麻将账本', this.user.id, 'MJ2026', now(), 'pending')];
+    this.members = [new GroupMember(groupId, this.user.id, 'owner', now())];
+    this.sessions = [];
+    this.rounds = [];
+    this.operations = [];
+    this.enqueue(groupId, groupId, 'clear_data', '{}');
+  }
+
   pendingOperations(): LedgerOperation[] {
     return this.operations.filter((item: LedgerOperation) => item.syncState === 'pending');
   }
@@ -154,8 +182,26 @@ export class InMemoryLedgerRepository implements LedgerRepository {
     }
   }
 
-  private enqueue(groupId: string, entityId: string, type: 'create_group' | 'create_session' | 'create_round' | 'void_round' | 'update_round', payload: string): void {
+  private enqueue(groupId: string, entityId: string, type: OperationType, payload: string): void {
     this.operations.unshift(new LedgerOperation(makeId('op'), groupId, entityId, type, this.user.id, now(), payload));
+  }
+
+  private cloneBuyIns(source: Record<string, number>, playerIds: string[]): Record<string, number> {
+    const buyIns: Record<string, number> = {};
+    for (let index = 0; index < playerIds.length; index++) {
+      const playerId = playerIds[index];
+      buyIns[playerId] = Number(source[playerId] ?? 200);
+    }
+    return buyIns;
+  }
+
+  private normalizeName(name: string): string {
+    return name.trim().toLowerCase();
+  }
+
+  private nextAvatarColor(): string {
+    const colors: string[] = ['#126A50', '#C43E32', '#2A6FB3', '#D2902F', '#4FA868', '#7355A5', '#C6A85A'];
+    return colors[this.users.length % colors.length];
   }
 }
 
