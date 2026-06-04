@@ -1,6 +1,7 @@
 export type SyncState = 'synced' | 'pending' | 'failed';
 export type MemberRole = 'owner' | 'member';
-export type OperationType = 'create_group' | 'create_session' | 'create_round' | 'void_round' | 'update_round';
+export type SessionStatus = 'active' | 'settled';
+export type OperationType = 'create_group' | 'create_user' | 'create_session' | 'update_session' | 'settle_session' | 'create_round' | 'void_round' | 'update_round' | 'update_user' | 'clear_data';
 
 export class User {
   id: string = '';
@@ -53,17 +54,23 @@ export class GameSession {
   basePoint: number = 1;
   note: string = '';
   playerIds: string[] = [];
+  buyIns: Record<string, number> = {};
   createdAt: number = 0;
+  settledAt: number = 0;
+  status: SessionStatus = 'active';
   syncState: SyncState = 'synced';
 
-  constructor(id: string, groupId: string, title: string, basePoint: number, note: string, playerIds: string[], createdAt: number, syncState: SyncState) {
+  constructor(id: string, groupId: string, title: string, basePoint: number, note: string, playerIds: string[], createdAt: number, syncState: SyncState, buyIns: Record<string, number> = {}, status: SessionStatus = 'active', settledAt: number = 0) {
     this.id = id;
     this.groupId = groupId;
     this.title = title;
     this.basePoint = basePoint;
     this.note = note;
     this.playerIds = playerIds;
+    this.buyIns = buyIns;
     this.createdAt = createdAt;
+    this.status = status;
+    this.settledAt = settledAt;
     this.syncState = syncState;
   }
 }
