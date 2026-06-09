@@ -7,7 +7,5 @@
   "author": "Codex",
   "license": "MIT",
   "dependencies": {},
-  "devDependencies": {
-    "@ohos/hvigor-ohos-plugin": "5.0.0"
-  }
+  "devDependencies": {}
 }
