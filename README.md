@@ -9,9 +9,9 @@
 - 技术路线：HarmonyOS NEXT Stage 模型、ArkTS、ArkUI、Hvigor。
 - 当前数据：本地内存仓储，默认仅初始化当前用户和本地账本组；不再预置模拟牌局、历史流水或统计数据，App 首次启动从无牌局状态开始。
 - 当前界面：牌局、统计、牌友、我的四个 Tab；主页面标题仅保留大标题，不再展示顶部小字；无进行中牌局时，牌局页展示新建牌局卡片并进入独立新建牌局页；新建牌局的牌局信息卡片只展示牌局名称输入框，不再额外显示小标签；牌局页业务卡片标题统一使用一致的字号、高度和顶部间距；`prototype/prototype-web` 已同步为可交互 Web demo，用于把当前 App 状态可视化验收，不作为 App 技术栈替代。
-- 当前交互：四个主页面使用 ArkUI `Swiper` 支持左右滑动切换，并与底部液态玻璃导航选中态同步；新建牌局页默认固定当前用户“我”，其余牌友和入场金额保持空白；牌友选择抽屉仅展示非本人的已有牌友，暂无牌友时展示空态提示。编辑牌局、历史详情、记账玩家选择使用 ArkUI `bindSheet` 半屏 Sheet；按钮、可点击小胶囊、可点击列表行、底部导航和可点击卡片均已接入按压缩小反馈。
+- 当前交互：四个主页面使用 ArkUI `Swiper` 支持左右滑动切换，并与底部液态玻璃导航选中态同步；新建牌局页默认固定当前用户“我”，牌局名称、默认买入金额、牌友姓名等表单项统一使用名称在上、输入区在下的纵向布局；默认买入金额初始为 200，可通过左右加减按钮按 50 调整，每次变化都会覆盖四位牌友入场金额；每位牌友入场金额改为姓名下方的左右加减步进器，可在默认金额基础上按 10 单独调整，步进按钮在页面内直接使用 ArkUI 原生 `Button` 绑定金额状态更新，使用系统 `sys.symbol.plus` / `sys.symbol.minus` 图标、无边框浅灰底和蓝色符号，含输入控件的新建表单卡片保持静态卡片面，避免父级按压缩放干扰小按钮点击；牌友 2 到牌友 4 的姓名输入框提示为“选择牌友”，右侧下拉入口使用居中的系统 `sys.symbol.chevron_down` 符号；牌友选择抽屉仅展示非本人的已有牌友，暂无牌友时展示空态提示。编辑牌局、历史详情、记账玩家选择使用 ArkUI `bindSheet` 半屏 Sheet；带返回入口的整页使用 ClashBox `Xb_TopTitleBar` / `Xb_CircleButton` 同源思路的圆形 `sys.symbol.chevron_left` 符号按钮，并支持从屏幕左侧边缘向右滑动返回；按钮、可点击小胶囊、可点击列表行、底部导航和可点击内容卡片均已接入按压缩小反馈。
 - 当前状态联动：牌局页参与人、入场金额、总入场和当前账面从仓储牌局与流水实时派生；记账输入的当前方式、玩家选择、金额和备注草稿已收拢到 `EntryInputDraft`，金额输入使用 ArkUI `TextInput` 用户输入，单家收分改为在卡片内直接选择赢家并输入“每位输分”，卡片高度按内部元素内容收敛；页面仅保留 `ledgerViewRevision` 刷新信号，编辑牌局保存并关闭 Sheet 后会自动统一刷新，已验证不需要切换 Tab 即可更新；入场金额调整流水会按本次调整记录展示金额，非“我”参与人的入场金额变化不会再显示为 0。
-- 当前闭环：支持从空牌局创建牌局、已有牌友选择/新牌友创建、入场金额必填校验、三种记账输入、编辑牌局、结算封账、结算完成页、历史详情、牌友表现和我的统计；三种记账输入默认不预填示例数据，单家收分在当前牌局参与人中选择赢家，AA 开销/手动调整通过当前牌局参与人抽屉选择对象；AA 开销支持填写备注并写入流水说明；结算页整场统计使用等宽 2x2 信息块，应收应付按牌友展示入场金额和带正负号的语义色账面金额，并单独提供最佳转账路径卡片；封账完成页使用结果卡片滑入和更丝滑的金额计数动画；统计页保留全部和历史牌局两个分段，全部页展示总览、最近封账、走势、胜率最高牌友，走势使用带日期标签的折线图；历史牌局直接以单局卡片列表展示日期、参与人、赢家、输家和输赢金额，历史详情按概览、最终账面、流水卡片分区；进行中牌局流水已支持左滑显示垃圾桶并点击撤回（撤回即删除/作废，修改暂缓）；返回按钮统一为半透明液态玻璃样式，所有按钮和可点击胶囊类入口共用按压缩小反馈；V1.0 剩余重点是本地持久化、完整流水与历史列表；登录、云同步、邀请加入和权限控制作为后续在线能力。
+- 当前闭环：支持从空牌局创建牌局、已有牌友选择/新牌友创建、入场金额必填校验、三种记账输入、编辑牌局、结算封账、结算完成页、历史详情、牌友表现和我的统计；三种记账输入默认不预填示例数据，单家收分在当前牌局参与人中选择赢家，AA 开销/手动调整通过当前牌局参与人抽屉选择对象；AA 开销支持填写备注并写入流水说明；结算页整场统计使用等宽 2x2 信息块，应收应付按牌友展示入场金额和带正负号的语义色账面金额，并单独提供最佳转账路径卡片；封账完成页使用结果卡片滑入和更丝滑的金额计数动画；统计页保留全部和历史牌局两个分段，全部页展示总览、最近封账、走势、胜率最高牌友，走势使用带日期标签的折线图；历史牌局直接以单局卡片列表展示日期、参与人、赢家、输家和输赢金额，历史详情按概览、最终账面、流水卡片分区；进行中牌局流水已支持左滑显示垃圾桶并点击撤回（撤回即删除/作废，修改暂缓）；返回按钮统一为 ClashBox 风格半透明圆形符号按钮，整页返回场景支持左缘右滑返回，本轮已核对并修正固定尺寸图标/符号容器的横向与纵向居中；所有主要内容卡片已统一接入接近按钮手感的按压缩小和阴影收敛反馈；V1.0 剩余重点是本地持久化、完整流水与历史列表；登录、云同步、邀请加入和权限控制作为后续在线能力。
 
 ## 状态架构方向
 
@@ -126,4 +126,26 @@ V1.0 暂不处理在线同步状态产品化、本地备份、账单分享、通
 
 ## 文档维护口径
 
-`README.md` 作为项目主计划和功能状态表使用。`AGENTS.md` 记录协作和工程原则。`prototype/PROTOTYPE_DEV_SPEC.md` 记录页面结构、状态逻辑和业务流程。涉及数据模型、状态架构、同步策略或核心流程变更时，应同步更新这些文档。
+`README.md` 作为项目主计划和功能状态表使用。`AGENTS.md` 记录协作和工程原则。`prototype/PROTOTYPE_DEV_SPEC.md` 记录页面结构、状态逻辑和业务流程。`docs/HARMONYOS_NATIVE_LIGHT_MOTION_RULES.md` 记录可复用的 HarmonyOS 原生轻动效规则。涉及数据模型、状态架构、同步策略、核心流程或通用动效规则变更时，应同步更新这些文档。
+# 2026-06-05 animation update
+
+- Bottom navigation now uses a lighter glass background, a sliding selected indicator, and `SwiperController`-driven horizontal tab switching.
+- Main tab pages, detail pages, and cashflow lists now use `EdgeEffect.Spring` so real-device scrolling keeps native elastic space at the top and bottom.
+- Follow-up tuning keeps the four main pages cached in one `Swiper`, removes state-first tab jumps, centers nav items over the selected indicator, and lowers the nav fill opacity for a more liquid-glass feel.
+- Main navigation has been corrected to follow ClashBox's `FloatBar` pattern: a single blurred floating container, fixed `60x60` tab items, no moving background layer, and selected icon lift only.
+- Page, start window, and system container backgrounds now share the ClashBox-style `#F1F3F5` background to reduce visual seams around the status and gesture bars.
+- Detail page back buttons now follow the ClashBox circular symbol-button pattern with `sys.symbol.chevron_left`, and detail pages can return via a right swipe from the left screen edge.
+- Detail pages are now mounted as a full-page layer over the cached main `Swiper`, enter from the right with `TransitionEdge.END`, return to the right on back, and consume `onBackPress()` so the real-device left-edge system gesture returns to the previous in-app page instead of exiting the app.
+- New-session friend picker selection now forces the name input field to rebuild with the selected friend's display name; the settlement transfer path no longer shows the redundant leading transfer badge.
+- The friends page search now expands in place at the top of the page instead of opening a right-side detail page, hides the bottom nav while searching, removes the cancel button, and keeps the search icon vertically centered; friend rows no longer show redundant name-avatar badges.
+- The friends page search now uses a Header Transition: the friends title fades and slides up when search starts, the search bar stays at the top and becomes the input field, and an upward swipe on the friends page can also enter search mode.
+- The friends search icon now uses a centered system `SymbolGlyph` instead of a text glyph, the empty search guide is shown as a lightweight hint card, and the Header Transition timing has been smoothed with coordinated title, search-bar, and content motion.
+- Friend search now opens as a lightweight full-page temporary search layer over the friends tab, focuses the input and requests the keyboard on entry, shows a cancel action, disables main-tab swiping while active, and supports right-swipe/back to return to the friends page.
+- Friend search entry now uses a pseudo shared-element motion: the temporary search bar starts near the original friends-page search field, moves upward into the search-page top position, then fades in the cancel action and guide/results content.
+- Friend search return now keeps the underlying friends-page search field hidden until the temporary search layer has finished closing, avoiding a transient double-search-bar overlap.
+- Friend search return motion now collapses the cancel action, right padding, shadow, radius, and top offset on the same curve so the temporary search bar visually restores as a pseudo shared search field.
+- Entry player picker rows for payer and adjustment target no longer show redundant leading name-avatar badges.
+- Successful entries in all three game-entry modes now reset the entry draft immediately after the round is written, clearing amount, note, reason, and selected-player fields while staying on the current entry mode.
+- Fixed-size symbol and icon containers were reviewed for centering; empty-state icons, search icons, avatar letters, transfer markers, dropdown/clear glyphs, and the selected game nav glyph now use explicit center alignment.
+- Major content cards now share a button-like press response: card scale drops to `0.96` and the shadow tightens while pressed.
+- Cold start stays on the system start-window path, without an extra centered start-window icon; page, start window, window background, and system container background share the ClashBox-style `#F1F3F5` page color.

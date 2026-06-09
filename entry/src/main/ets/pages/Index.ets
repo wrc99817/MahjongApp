@@ -4,10 +4,10 @@ import { ledgerRepository } from '../repositories/InMemoryLedgerRepository';
 import { buildPlayerSummaries, formatMoney, validateRound } from '../services/Money';
 import { SyncService } from '../services/SyncService';
 
-const PAGE_BG: string = '#F3F6FC';
+const PAGE_BG: string = '#F1F3F5';
 const CARD_BG: string = '#FFFFFF';
 const SOFT_BG: string = '#EDF2FA';
-const NAV_BG: string = '#70FFFFFF';
+const NAV_BG: string = '#B3F1F3F5';
 const TEXT_MAIN: string = '#1F2329';
 const TEXT_SECOND: string = '#69707A';
 const LINE: string = '#E4EAF3';
@@ -18,6 +18,7 @@ const GREEN: string = '#2E8B57';
 const MUTED_GREEN: string = '#EAF4EE';
 const ICON_GRAY: string = '#7B818B';
 const BUY_IN_NOTE_MARKER: string = '||buyin:';
+const FRIEND_SEARCH_INPUT_ID: string = 'friend-search-input';
 
 @Observed
 class EntryInputDraft {
@@ -106,6 +107,8 @@ struct Index {
   @State private activeSheet: number = 0;
   @State private statsMode: number = 0;
   @State private friendSearchActive: boolean = false;
+  @State private friendSearchMotionReady: boolean = false;
+  @State private friendSearchBaseSearchHidden: boolean = false;
   @State private friendSearchQuery: string = '';
   @State private entryDraft: EntryInputDraft = new EntryInputDraft();
   @State private entryPlayerPickerTarget: number = -1;
@@ -117,6 +120,7 @@ struct Index {
   @State private pressedNavIndex: number = -1;
   @State private pressedCardKey: string = '';
   @State private pressedControlKey: string = '';
+  @State private detailEdgePanStartX: number = -1;
   @State private confirmClearData: boolean = false;
   @State private lastSettledTitle: string = '';
   @State private lastSettledWinnerName: string = '';
@@ -135,6 +139,7 @@ struct Index {
   @State private selectedGroupId: string = '';
   @State private selectedSessionId: string = '';
   @State private newSessionTitle: string = '今天的牌局';
+  @State private newDefaultBuyIn: string = '200';
   @State private basePoint: string = '10';
   @State private newPlayer0Name: string = '我';
   @State private newPlayer1Name: string = '';
@@ -157,10 +162,23 @@ struct Index {
   @State private editPlayer3BuyIn: string = '200';
   @State private cashflowFilter: number = 0;
   @State private historyDetailSessionId: string = '';
+  private mainTabSwiperController: SwiperController = new SwiperController();
   private syncService: SyncService = new SyncService();
 
   aboutToAppear(): void {
     this.refresh();
+  }
+
+  onBackPress(): boolean {
+    if (this.hasBackDetailPage()) {
+      this.navigateBackFromDetail();
+      return true;
+    }
+    if (this.currentTab === 2 && this.friendSearchActive) {
+      this.closeFriendSearch();
+      return true;
+    }
+    return false;
   }
 
 
@@ -263,6 +281,14 @@ struct Index {
     this.entryDraft.touch();
   }
 
+  private resetEntryDraftAfterRecord(): void {
+    const currentMode = this.entryDraft.mode;
+    const nextDraft = new EntryInputDraft();
+    nextDraft.mode = currentMode;
+    nextDraft.touch();
+    this.entryDraft = nextDraft;
+  }
+
   private buyInForUser(userId: string): number {
     const session = this.currentSession();
     if (!session) {
@@ -295,6 +321,37 @@ struct Index {
       return fallback;
     }
     return amount;
+  }
+
+  private amountText(value: string, fallback: number = 0): string {
+    return `${this.parsePositiveAmount(value, fallback)}`;
+  }
+
+  private steppedAmount(value: string, delta: number, fallback: number = 0): string {
+    return `${Math.max(0, this.parsePositiveAmount(value, fallback) + delta)}`;
+  }
+
+  private adjustNewDefaultBuyIn(delta: number): void {
+    const previousDefault = this.parsePositiveAmount(this.newDefaultBuyIn, 200);
+    const nextDefault = Math.max(0, previousDefault + delta);
+    this.newDefaultBuyIn = `${nextDefault}`;
+    this.newPlayer0BuyIn = `${nextDefault}`;
+    this.newPlayer1BuyIn = `${nextDefault}`;
+    this.newPlayer2BuyIn = `${nextDefault}`;
+    this.newPlayer3BuyIn = `${nextDefault}`;
+  }
+
+  private adjustNewPlayerBuyIn(index: number, delta: number): void {
+    const fallback = this.parsePositiveAmount(this.newDefaultBuyIn, 200);
+    if (index === 0) {
+      this.newPlayer0BuyIn = this.steppedAmount(this.newPlayer0BuyIn, delta, fallback);
+    } else if (index === 1) {
+      this.newPlayer1BuyIn = this.steppedAmount(this.newPlayer1BuyIn, delta, fallback);
+    } else if (index === 2) {
+      this.newPlayer2BuyIn = this.steppedAmount(this.newPlayer2BuyIn, delta, fallback);
+    } else if (index === 3) {
+      this.newPlayer3BuyIn = this.steppedAmount(this.newPlayer3BuyIn, delta, fallback);
+    }
   }
 
   private roundTime(value: number): string {
@@ -988,7 +1045,15 @@ struct Index {
   }
 
   private pressableCardScale(cardKey: string): ScaleOptions {
-    return this.pressedCardKey === cardKey ? { x: 0.985, y: 0.985 } : { x: 1, y: 1 };
+    return this.pressedCardKey === cardKey ? { x: 0.96, y: 0.96 } : { x: 1, y: 1 };
+  }
+
+  private pressableCardShadowRadius(cardKey: string, radius: number = 18): number {
+    return this.pressedCardKey === cardKey ? Math.max(radius - 8, 8) : radius;
+  }
+
+  private pressableCardShadowOffsetY(cardKey: string, offsetY: number = 8): number {
+    return this.pressedCardKey === cardKey ? Math.max(offsetY - 4, 3) : offsetY;
   }
 
   private handlePressableCardTouch(event: TouchEvent, cardKey: string): void {
@@ -1008,6 +1073,58 @@ struct Index {
       this.pressedControlKey = controlKey;
     } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
       this.pressedControlKey = '';
+    }
+  }
+
+  private hasBackDetailPage(): boolean {
+    return this.showCreatePage || this.showHistoryDetail || this.showSettlement || this.showSettlementComplete
+      || this.friendSearchActive;
+  }
+
+  private hasDetailScreen(): boolean {
+    return this.showCreatePage || this.showHistoryDetail || this.showSettlement || this.showSettlementComplete
+      || this.friendSearchActive;
+  }
+
+  private navigateBackFromDetail(): void {
+    if (this.showCreatePage) {
+      this.closeCreatePage();
+    } else if (this.showHistoryDetail) {
+      this.closeHistoryDetailPage();
+    } else if (this.showSettlement) {
+      this.closeSettlementPage();
+    } else if (this.showSettlementComplete) {
+      this.returnFromSettlementComplete();
+    } else if (this.friendSearchActive) {
+      this.closeFriendSearch();
+    }
+  }
+
+  private handleDetailEdgePanStart(event: GestureEvent): void {
+    if (!this.hasBackDetailPage() || !event.fingerList || event.fingerList.length === 0) {
+      this.detailEdgePanStartX = -1;
+      return;
+    }
+    this.detailEdgePanStartX = event.fingerList[0].localX;
+  }
+
+  private handleDetailEdgePanEnd(event: GestureEvent): void {
+    if (this.detailEdgePanStartX >= 0 && this.detailEdgePanStartX <= 24
+      && event.offsetX >= 72 && Math.abs(event.offsetY) <= 80) {
+      this.navigateBackFromDetail();
+    }
+    this.detailEdgePanStartX = -1;
+  }
+
+  private handleFriendPagePanEnd(event: GestureEvent): void {
+    if (this.friendSearchActive) {
+      if (event.offsetX >= 72 && Math.abs(event.offsetY) <= 80) {
+        this.closeFriendSearch();
+      }
+      return;
+    }
+    if (event.offsetY <= -48 && Math.abs(event.offsetX) <= 80) {
+      this.openFriendSearch();
     }
   }
 
@@ -1070,16 +1187,121 @@ struct Index {
   }
 
   private openFriendSearch(): void {
+    this.friendSearchBaseSearchHidden = true;
+    this.friendSearchMotionReady = false;
     this.getUIContext().animateTo({ duration: 220, curve: Curve.FastOutSlowIn }, () => {
       this.friendSearchActive = true;
     });
+    setTimeout(() => {
+      this.getUIContext().animateTo({ duration: 280, curve: Curve.FastOutSlowIn }, () => {
+        this.friendSearchMotionReady = true;
+      });
+    }, 20);
+    setTimeout(() => {
+      focusControl.requestFocus(FRIEND_SEARCH_INPUT_ID);
+    }, 170);
   }
 
   private closeFriendSearch(): void {
-    this.getUIContext().animateTo({ duration: 180, curve: Curve.FastOutLinearIn }, () => {
-      this.friendSearchActive = false;
-      this.friendSearchQuery = '';
+    this.getUIContext().animateTo({ duration: 280, curve: Curve.FastOutSlowIn }, () => {
+      this.friendSearchMotionReady = false;
     });
+    setTimeout(() => {
+      this.getUIContext().animateTo({ duration: 1, curve: Curve.Linear }, () => {
+        this.friendSearchActive = false;
+        this.friendSearchQuery = '';
+      });
+      setTimeout(() => {
+        this.friendSearchBaseSearchHidden = false;
+      }, 40);
+    }, 280);
+  }
+
+  private friendSearchOpenBarOpacity(): number {
+    return this.friendSearchActive || this.friendSearchBaseSearchHidden ? 0 : 1;
+  }
+
+  private friendSearchBarOffsetY(): number {
+    if (!this.friendSearchActive) {
+      return 0;
+    }
+    return this.friendSearchMotionReady ? -6 : 52;
+  }
+
+  private friendSearchContentOffsetY(): number {
+    if (!this.friendSearchActive) {
+      return 12;
+    }
+    return this.friendSearchMotionReady ? 0 : 18;
+  }
+
+  private friendSearchContentOpacity(): number {
+    if (!this.friendSearchActive) {
+      return 0;
+    }
+    return this.friendSearchMotionReady ? 1 : 0;
+  }
+
+  private friendSearchCancelOpacity(): number {
+    if (!this.friendSearchActive) {
+      return 0;
+    }
+    return this.friendSearchMotionReady ? 1 : 0;
+  }
+
+  private friendSearchExpandedChrome(): boolean {
+    return this.friendSearchActive && this.friendSearchMotionReady;
+  }
+
+  private friendSearchHeaderGap(): number {
+    return this.friendSearchExpandedChrome() ? 12 : 0;
+  }
+
+  private friendSearchCancelWidth(): number {
+    return this.friendSearchExpandedChrome() ? 44 : 0;
+  }
+
+  private friendSearchBarHeight(): number {
+    return this.friendSearchExpandedChrome() ? 48 : 44;
+  }
+
+  private friendSearchBarRadius(): number {
+    return this.friendSearchExpandedChrome() ? 24 : 22;
+  }
+
+  private friendSearchBarPaddingRight(): number {
+    return this.friendSearchExpandedChrome() ? 10 : 14;
+  }
+
+  private friendSearchBarScale(): ScaleOptions {
+    if (!this.friendSearchActive) {
+      return this.pressableControlScale('friends-search-open');
+    }
+    if (this.friendSearchMotionReady) {
+      return this.pressableControlScale('friends-search-open');
+    }
+    return { x: 1, y: 1 };
+  }
+
+  private friendSearchOverlayOpacity(): number {
+    if (!this.friendSearchActive) {
+      return 0;
+    }
+    return this.friendSearchMotionReady ? 1 : 0.98;
+  }
+
+  private friendSearchOverlayOffsetY(): number {
+    if (!this.friendSearchActive) {
+      return 12;
+    }
+    return this.friendSearchMotionReady ? 0 : 0;
+  }
+
+  private friendSearchPageBg(): string {
+    if (!this.friendSearchActive || this.friendSearchMotionReady) {
+      return PAGE_BG;
+    }
+    return '#20F1F3F5';
   }
 
   private friendSearchText(): string {
@@ -1170,15 +1392,20 @@ struct Index {
   }
 
   private switchTab(index: number): void {
-    this.getUIContext().animateTo({ duration: 240, curve: Curve.FastOutSlowIn }, () => {
-      this.showSettlement = false;
-      this.showCreatePage = false;
-      this.showSettlementComplete = false;
-      this.showHistoryDetail = false;
-      this.friendSearchActive = false;
+    if (this.currentTab === index) {
       this.pressedNavIndex = -1;
+      return;
+    }
+    this.showSettlement = false;
+    this.showCreatePage = false;
+    this.showSettlementComplete = false;
+    this.showHistoryDetail = false;
+    this.friendSearchActive = false;
+    this.pressedNavIndex = -1;
+    this.getUIContext().animateTo({ duration: 180, curve: Curve.FastOutSlowIn }, () => {
       this.currentTab = index;
     });
+    this.mainTabSwiperController.changeIndex(index, true);
   }
 
   private openCreatePage(): void {
@@ -1188,6 +1415,22 @@ struct Index {
       this.showSettlement = false;
       this.showSettlementComplete = false;
       this.currentTab = 0;
+    });
+  }
+
+  private openSettlementPage(): void {
+    this.getUIContext().animateTo({ duration: 220, curve: Curve.FastOutSlowIn }, () => {
+      this.showSettlement = true;
+      this.showCreatePage = false;
+      this.showSettlementComplete = false;
+      this.showHistoryDetail = false;
+      this.currentTab = 0;
+    });
+  }
+
+  private closeSettlementPage(): void {
+    this.getUIContext().animateTo({ duration: 180, curve: Curve.FastOutLinearIn }, () => {
+      this.showSettlement = false;
     });
   }
 
@@ -1212,6 +1455,12 @@ struct Index {
     this.historyDetailSessionId = sessionId;
     this.getUIContext().animateTo({ duration: 220, curve: Curve.FastOutSlowIn }, () => {
       this.showHistoryDetail = true;
+    });
+  }
+
+  private closeHistoryDetailPage(): void {
+    this.getUIContext().animateTo({ duration: 180, curve: Curve.FastOutLinearIn }, () => {
+      this.showHistoryDetail = false;
     });
   }
 
@@ -1332,7 +1581,9 @@ struct Index {
     } else if (this.friendPickerTarget === 3) {
       this.newPlayer3Name = user.displayName;
     }
-    this.closeSheet();
+    this.closeSheet(() => {
+      this.friendPickerTarget = -1;
+    });
   }
 
   private prepareNewSessionForm(): void {
@@ -1342,10 +1593,11 @@ struct Index {
     this.newPlayer1Name = '';
     this.newPlayer2Name = '';
     this.newPlayer3Name = '';
-    this.newPlayer0BuyIn = '';
-    this.newPlayer1BuyIn = '';
-    this.newPlayer2BuyIn = '';
-    this.newPlayer3BuyIn = '';
+    this.newDefaultBuyIn = '200';
+    this.newPlayer0BuyIn = this.newDefaultBuyIn;
+    this.newPlayer1BuyIn = this.newDefaultBuyIn;
+    this.newPlayer2BuyIn = this.newDefaultBuyIn;
+    this.newPlayer3BuyIn = this.newDefaultBuyIn;
   }
 
   private prepareEditSessionForm(): void {
@@ -1513,6 +1765,7 @@ struct Index {
     this.summaries = nextSummaries;
     this.operations = ledgerRepository.listOperations(this.selectedGroupId);
     this.ledgerViewRevision += 1;
+    this.resetEntryDraftAfterRecord();
     promptAction.showToast({ message: successMessage });
   }
 
@@ -1651,10 +1904,12 @@ struct Index {
   }
 
   private returnFromSettlementComplete(): void {
-    this.showSettlementComplete = false;
-    this.resetSettlementCompleteMotion();
-    this.currentTab = 0;
-    this.refresh();
+    this.getUIContext().animateTo({ duration: 180, curve: Curve.FastOutLinearIn }, () => {
+      this.showSettlementComplete = false;
+      this.resetSettlementCompleteMotion();
+      this.currentTab = 0;
+      this.refresh();
+    });
   }
 
   private resetSettlementCompleteMotion(): void {
@@ -1727,7 +1982,7 @@ struct Index {
       .position({ x: 0, y: 0 })
       .animation({ duration: 260, curve: Curve.FastOutSlowIn })
 
-      if (!this.showSettlement && !this.showCreatePage && !this.showSettlementComplete && !this.showHistoryDetail && !this.friendSearchActive) {
+      if (!this.hasDetailScreen() && !this.friendSearchActive) {
         this.GlassNav()
       }
     }
@@ -1758,11 +2013,15 @@ struct Index {
 
   @Builder
   private Screen() {
-    if (!this.showSettlement && !this.showSettlementComplete && !this.showCreatePage && !this.showHistoryDetail && !(this.currentTab === 2 && this.friendSearchActive)) {
+    Stack({ alignContent: Alignment.TopStart }) {
       this.MainTabSwiper()
-    } else {
-      this.DetailScreen()
+      if (this.hasDetailScreen()) {
+        this.DetailScreen()
+      }
     }
+    .width('100%')
+    .height('100%')
+    .backgroundColor(this.friendSearchActive ? this.friendSearchPageBg() : PAGE_BG)
   }
 
   @Builder
@@ -1777,11 +2036,11 @@ struct Index {
           this.CreateGamePage()
         } else if (this.showHistoryDetail) {
           this.HistoryDetailPage()
-        } else if (this.currentTab === 2 && this.friendSearchActive) {
+        } else if (this.friendSearchActive) {
           this.FriendSearchPage()
         }
       }
-      .padding({ left: 20, right: 20, top: 26, bottom: (this.showSettlement || this.showCreatePage || this.showSettlementComplete || this.showHistoryDetail) ? 30 : 118 })
+      .padding({ left: 20, right: 20, top: this.friendSearchActive ? 14 : 26, bottom: 30 })
       .width('100%')
       .constraintSize({ minHeight: '100%' })
       .justifyContent(FlexAlign.Start)
@@ -1790,22 +2049,41 @@ struct Index {
     .width('100%')
     .height('100%')
     .align(Alignment.TopStart)
+    .backgroundColor(PAGE_BG)
     .scrollBar(BarState.Off)
+    .edgeEffect(EdgeEffect.Spring)
+    .transition(this.friendSearchActive
+      ? TransitionEffect.OPACITY.animation({ duration: 220, curve: Curve.FastOutSlowIn })
+      : TransitionEffect.asymmetric(
+        TransitionEffect.move(TransitionEdge.END).animation({ duration: 220, curve: Curve.FastOutSlowIn }),
+        TransitionEffect.move(TransitionEdge.END).animation({ duration: 180, curve: Curve.FastOutLinearIn })
+      ))
+    .parallelGesture(
+      PanGesture({ fingers: 1, direction: PanDirection.Right })
+        .onActionStart((event: GestureEvent) => this.handleDetailEdgePanStart(event))
+        .onActionEnd((event: GestureEvent) => this.handleDetailEdgePanEnd(event))
+    )
   }
 
   @Builder
   private MainTabSwiper() {
-    Swiper() {
+    Swiper(this.mainTabSwiperController) {
       this.MainTabPage(0)
       this.MainTabPage(1)
       this.MainTabPage(2)
       this.MainTabPage(3)
     }
-    .index(this.currentTab)
     .indicator(false)
     .loop(false)
-    .duration(260)
+    .disableSwipe(this.currentTab === 2 && this.friendSearchActive)
+    .cachedCount(3)
+    .duration(300)
     .curve(Curve.FastOutSlowIn)
+    .onAnimationStart((index: number, targetIndex: number) => {
+      this.getUIContext().animateTo({ duration: 260, curve: Curve.FastOutSlowIn }, () => {
+        this.currentTab = targetIndex;
+      });
+    })
     .onChange((index: number) => {
       this.currentTab = index;
     })
@@ -1817,7 +2095,9 @@ struct Index {
   private MainTabPage(index: number) {
     Scroll() {
       Column({ space: 18 }) {
-        this.PageHeaderFor(index)
+        if (index !== 2) {
+          this.PageHeaderFor(index)
+        }
         if (index === 0) {
           this.GamePage()
         } else if (index === 1) {
@@ -1838,6 +2118,7 @@ struct Index {
     .height('100%')
     .align(Alignment.TopStart)
     .scrollBar(BarState.Off)
+    .edgeEffect(EdgeEffect.Spring)
   }
 
   @Builder
@@ -1881,18 +2162,18 @@ struct Index {
 
   @Builder
   private BackButton(onTap: () => void) {
-    Button('<')
-      .width(44)
-      .height(44)
-      .borderRadius(22)
-      .fontSize(24)
-      .fontWeight(FontWeight.Bold)
-      .fontColor(TEXT_MAIN)
-      .backgroundColor('#70FFFFFF')
+    Button({ type: ButtonType.Circle, stateEffect: true }) {
+      SymbolGlyph($r('sys.symbol.chevron_left'))
+        .fontSize(24)
+        .fontWeight(FontWeight.Bold)
+        .fontColor([TEXT_MAIN])
+    }
+      .width(40)
+      .height(40)
+      .backgroundColor('#66FFFFFF')
       .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
       .border({ width: 1, color: '#D8FFFFFF' })
       .shadow({ radius: 12, color: '#10000000', offsetY: 5 })
-      .stateEffect(true)
       .scale(this.pressableControlScale('back-button'))
       .animation({ duration: 150, curve: Curve.FastOutSlowIn })
       .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, 'back-button'))
@@ -1926,11 +2207,15 @@ struct Index {
       .padding(18)
       .borderRadius(22)
       .backgroundColor(CARD_BG)
-      .shadow({ radius: 18, color: '#10000000', offsetY: 8 })
+      .scale(this.pressableCardScale('create-guide-card'))
+      .shadow({ radius: this.pressableCardShadowRadius('create-guide-card'), color: '#10000000', offsetY: this.pressableCardShadowOffsetY('create-guide-card') })
+      .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+      .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'create-guide-card'))
 
       Column({ space: 12 }) {
         this.SectionTitle('牌局信息', '')
-        this.UnlabeledFullField(this.newSessionTitle, (value: string) => this.newSessionTitle = value)
+        this.VerticalTextField('牌局名称', this.newSessionTitle, '今天的牌局', (value: string) => this.newSessionTitle = value)
+        this.CreateDefaultBuyInField()
       }
       .padding(16)
       .borderRadius(22)
@@ -1939,10 +2224,14 @@ struct Index {
 
       Column({ space: 10 }) {
         this.SectionTitle('牌友和入场金额', '4 人')
-        this.CreateFixedPlayerRow('牌友1', this.newPlayer0Name, this.newPlayer0BuyIn, (value: string) => this.newPlayer0BuyIn = value)
-        this.CreatePlayerInputRow('牌友2', this.newPlayer1Name, this.newPlayer1BuyIn, (value: string) => this.newPlayer1Name = value, (value: string) => this.newPlayer1BuyIn = value, () => this.openFriendPicker(1))
-        this.CreatePlayerInputRow('牌友3', this.newPlayer2Name, this.newPlayer2BuyIn, (value: string) => this.newPlayer2Name = value, (value: string) => this.newPlayer2BuyIn = value, () => this.openFriendPicker(2))
-        this.CreatePlayerInputRow('牌友4', this.newPlayer3Name, this.newPlayer3BuyIn, (value: string) => this.newPlayer3Name = value, (value: string) => this.newPlayer3BuyIn = value, () => this.openFriendPicker(3))
+        this.CreateFixedPlayerRow('牌友1', this.newPlayer0Name)
+        this.CreatePlayer0BuyInStepper()
+        this.CreatePlayerInputRow('牌友2', this.newPlayer1Name, (value: string) => this.newPlayer1Name = value, () => this.openFriendPicker(1))
+        this.CreatePlayer1BuyInStepper()
+        this.CreatePlayerInputRow('牌友3', this.newPlayer2Name, (value: string) => this.newPlayer2Name = value, () => this.openFriendPicker(2))
+        this.CreatePlayer2BuyInStepper()
+        this.CreatePlayerInputRow('牌友4', this.newPlayer3Name, (value: string) => this.newPlayer3Name = value, () => this.openFriendPicker(3))
+        this.CreatePlayer3BuyInStepper()
       }
       .padding(16)
       .borderRadius(22)
@@ -1995,9 +2284,12 @@ struct Index {
         .borderRadius(24)
         .alignItems(HorizontalAlign.Center)
         .backgroundColor(CARD_BG)
-        .shadow({ radius: 22, color: '#14000000', offsetY: 10 })
+        .scale(this.pressableCardScale('settlement-complete-card'))
+        .shadow({ radius: this.pressableCardShadowRadius('settlement-complete-card', 22), color: '#14000000', offsetY: this.pressableCardShadowOffsetY('settlement-complete-card', 10) })
         .opacity(this.settlementCompleteCardOpacity)
         .translate({ y: this.settlementCompleteCardOffset })
+        .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+        .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'settlement-complete-card'))
       }
       .width('100%')
       .layoutWeight(1)
@@ -2028,7 +2320,7 @@ struct Index {
     if (this.historyDetailSession()) {
       Column({ space: 16 }) {
         Row({ space: 10 }) {
-          this.BackButton(() => this.showHistoryDetail = false)
+          this.BackButton(() => this.closeHistoryDetailPage())
           Text((this.historyDetailSession() as GameSession).title)
             .fontSize(24)
             .fontWeight(FontWeight.Bold)
@@ -2071,14 +2363,16 @@ struct Index {
   @Builder
   private EmptyGameCard() {
     Column({ space: 14 }) {
-      Text('+')
-        .width(54)
-        .height(54)
-        .fontSize(30)
-        .fontColor(BLUE)
-        .textAlign(TextAlign.Center)
-        .borderRadius(27)
-        .backgroundColor(BLUE_SOFT)
+      Stack({ alignContent: Alignment.Center }) {
+        Text('+')
+          .fontSize(30)
+          .fontColor(BLUE)
+          .textAlign(TextAlign.Center)
+      }
+      .width(54)
+      .height(54)
+      .borderRadius(27)
+      .backgroundColor(BLUE_SOFT)
       Text('点击此处开启一场牌局吧')
         .fontSize(18)
         .fontWeight(FontWeight.Bold)
@@ -2097,7 +2391,7 @@ struct Index {
     .borderRadius(24)
     .backgroundColor(CARD_BG)
     .scale(this.pressableCardScale('empty-game'))
-    .shadow({ radius: this.pressedCardKey === 'empty-game' ? 10 : 18, color: '#10000000', offsetY: this.pressedCardKey === 'empty-game' ? 4 : 8 })
+    .shadow({ radius: this.pressableCardShadowRadius('empty-game'), color: '#10000000', offsetY: this.pressableCardShadowOffsetY('empty-game') })
     .animation({ duration: 160, curve: Curve.FastOutSlowIn })
     .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'empty-game'))
     .onClick(() => this.openCreatePage())
@@ -2138,13 +2432,16 @@ struct Index {
           .scale(this.pressableControlScale('game-setup-settle'))
           .animation({ duration: 150, curve: Curve.FastOutSlowIn })
           .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, 'game-setup-settle'))
-          .onClick(() => this.showSettlement = true)
+          .onClick(() => this.openSettlementPage())
       }
     }
     .padding(16)
     .borderRadius(22)
     .backgroundColor(CARD_BG)
-    .shadow({ radius: 18, color: '#12000000', offsetY: 8 })
+    .scale(this.pressableCardScale('game-setup-card'))
+    .shadow({ radius: this.pressableCardShadowRadius('game-setup-card'), color: '#12000000', offsetY: this.pressableCardShadowOffsetY('game-setup-card') })
+    .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+    .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'game-setup-card'))
   }
 
   @Builder
@@ -2186,7 +2483,10 @@ struct Index {
     .padding(16)
     .borderRadius(22)
     .backgroundColor(CARD_BG)
-    .shadow({ radius: 18, color: '#10000000', offsetY: 8 })
+    .scale(this.pressableCardScale('balance-board-card'))
+    .shadow({ radius: this.pressableCardShadowRadius('balance-board-card'), color: '#10000000', offsetY: this.pressableCardShadowOffsetY('balance-board-card') })
+    .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+    .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'balance-board-card'))
   }
 
   @Builder
@@ -2235,7 +2535,10 @@ struct Index {
     .padding(16)
     .borderRadius(22)
     .backgroundColor(CARD_BG)
-    .shadow({ radius: 18, color: '#10000000', offsetY: 8 })
+    .scale(this.pressableCardScale('entry-panel-card'))
+    .shadow({ radius: this.pressableCardShadowRadius('entry-panel-card'), color: '#10000000', offsetY: this.pressableCardShadowOffsetY('entry-panel-card') })
+    .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+    .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'entry-panel-card'))
   }
 
   @Builder
@@ -2468,13 +2771,16 @@ struct Index {
         .height(this.visibleRoundListHeight())
         .width('100%')
         .scrollBar(BarState.Off)
-        .edgeEffect(EdgeEffect.None)
+        .edgeEffect(EdgeEffect.Spring)
       }
     }
     .padding(16)
     .borderRadius(22)
     .backgroundColor(CARD_BG)
-    .shadow({ radius: 18, color: '#10000000', offsetY: 8 })
+    .scale(this.pressableCardScale('cashflow-history-card'))
+    .shadow({ radius: this.pressableCardShadowRadius('cashflow-history-card'), color: '#10000000', offsetY: this.pressableCardShadowOffsetY('cashflow-history-card') })
+    .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+    .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'cashflow-history-card'))
   }
 
   @Builder
@@ -2517,6 +2823,87 @@ struct Index {
   }
 
   @Builder
+  private VerticalTextField(label: string, value: string, placeholder: string, onChange: (value: string) => void) {
+    Column({ space: 8 }) {
+      Text(label)
+        .fontSize(13)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(TEXT_SECOND)
+        .width('100%')
+      TextInput({ text: value, placeholder: placeholder })
+        .height(42)
+        .width('100%')
+        .fontSize(15)
+        .fontColor(TEXT_MAIN)
+        .padding({ left: 12, right: 12 })
+        .borderRadius(13)
+        .backgroundColor('#F8F6F2')
+        .onChange(onChange)
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  private CreateDefaultBuyInField() {
+    Column({ space: 8 }) {
+      Text('默认买入金额')
+        .fontSize(13)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(TEXT_SECOND)
+        .width('100%')
+      Row({ space: 10 }) {
+        Button() {
+          SymbolGlyph($r('sys.symbol.minus'))
+            .fontSize(18)
+            .fontWeight(FontWeight.Bold)
+            .fontColor([BLUE])
+        }
+          .width(42)
+          .height(42)
+          .borderRadius(21)
+          .fontSize(22)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(BLUE)
+          .backgroundColor('#F8F6F2')
+          .stateEffect(true)
+          .onClick(() => this.adjustNewDefaultBuyIn(-50))
+
+        Text(this.amountText(this.newDefaultBuyIn, 200))
+          .height(42)
+          .layoutWeight(1)
+          .fontSize(16)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(TEXT_MAIN)
+          .textAlign(TextAlign.Center)
+          .borderRadius(13)
+          .backgroundColor('#F8F6F2')
+
+        Button() {
+          SymbolGlyph($r('sys.symbol.plus'))
+            .fontSize(18)
+            .fontWeight(FontWeight.Bold)
+            .fontColor([BLUE])
+        }
+          .width(42)
+          .height(42)
+          .borderRadius(21)
+          .fontSize(22)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(BLUE)
+          .backgroundColor('#F8F6F2')
+          .stateEffect(true)
+          .onClick(() => this.adjustNewDefaultBuyIn(50))
+      }
+      .width('100%')
+      .height(42)
+      .alignItems(VerticalAlign.Center)
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
   private DeleteRoundSwipeAction(round: RoundRecord) {
     Row() {
       Button() {
@@ -2533,6 +2920,7 @@ struct Index {
             .borderRadius(4)
         }
         .alignItems(HorizontalAlign.Center)
+        .justifyContent(FlexAlign.Center)
       }
       .width(44)
       .height(44)
@@ -2577,7 +2965,7 @@ struct Index {
   private SettlementPage() {
     Column({ space: 16 }) {
       Row({ space: 10 }) {
-        this.BackButton(() => this.showSettlement = false)
+        this.BackButton(() => this.closeSettlementPage())
         Text(this.currentSessionTitle())
           .fontSize(24)
           .fontWeight(FontWeight.Bold)
@@ -2606,7 +2994,10 @@ struct Index {
       .borderRadius(24)
       .alignItems(HorizontalAlign.Center)
       .backgroundColor(CARD_BG)
-      .shadow({ radius: 20, color: '#14000000', offsetY: 8 })
+      .scale(this.pressableCardScale('settlement-winner-card'))
+      .shadow({ radius: this.pressableCardShadowRadius('settlement-winner-card', 20), color: '#14000000', offsetY: this.pressableCardShadowOffsetY('settlement-winner-card') })
+      .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+      .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'settlement-winner-card'))
 
       this.SettlementSummary()
       Column({ space: 12 }) {
@@ -2627,6 +3018,10 @@ struct Index {
       .padding(16)
       .borderRadius(22)
       .backgroundColor(CARD_BG)
+      .scale(this.pressableCardScale('settlement-payable-card'))
+      .shadow({ radius: this.pressableCardShadowRadius('settlement-payable-card'), color: '#0C000000', offsetY: this.pressableCardShadowOffsetY('settlement-payable-card', 6) })
+      .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+      .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'settlement-payable-card'))
 
       this.SettlementTransferCard()
 
@@ -2656,7 +3051,7 @@ struct Index {
           .scale(this.pressableControlScale('settlement-return'))
           .animation({ duration: 150, curve: Curve.FastOutSlowIn })
           .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, 'settlement-return'))
-          .onClick(() => this.showSettlement = false)
+          .onClick(() => this.closeSettlementPage())
       }
     }
   }
@@ -2683,6 +3078,10 @@ struct Index {
     .padding(16)
     .borderRadius(22)
     .backgroundColor(CARD_BG)
+    .scale(this.pressableCardScale('settlement-summary-card'))
+    .shadow({ radius: this.pressableCardShadowRadius('settlement-summary-card'), color: '#0C000000', offsetY: this.pressableCardShadowOffsetY('settlement-summary-card', 6) })
+    .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+    .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'settlement-summary-card'))
   }
 
   @Builder
@@ -2747,20 +3146,15 @@ struct Index {
     .padding(16)
     .borderRadius(22)
     .backgroundColor(CARD_BG)
+    .scale(this.pressableCardScale('settlement-transfer-card'))
+    .shadow({ radius: this.pressableCardShadowRadius('settlement-transfer-card'), color: '#0C000000', offsetY: this.pressableCardShadowOffsetY('settlement-transfer-card', 6) })
+    .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+    .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'settlement-transfer-card'))
   }
 
   @Builder
   private TransferPathRow(title: string, desc: string, amount: string) {
-    Row({ space: 12 }) {
-      Text('转')
-        .width(34)
-        .height(34)
-        .fontSize(13)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(BLUE)
-        .textAlign(TextAlign.Center)
-        .borderRadius(17)
-        .backgroundColor(BLUE_SOFT)
+    Row({ space: 10 }) {
       Column({ space: 5 }) {
         Text(title)
           .fontSize(15)
@@ -2845,7 +3239,10 @@ struct Index {
     .padding({ left: 18, right: 18 })
     .borderRadius(22)
     .backgroundColor(CARD_BG)
-    .shadow({ radius: 18, color: '#12000000', offsetY: 8 })
+    .scale(this.pressableCardScale(`stats-summary-card-${scope}`))
+    .shadow({ radius: this.pressableCardShadowRadius(`stats-summary-card-${scope}`), color: '#12000000', offsetY: this.pressableCardShadowOffsetY(`stats-summary-card-${scope}`) })
+    .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+    .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, `stats-summary-card-${scope}`))
   }
 
   @Builder
@@ -2911,7 +3308,10 @@ struct Index {
     .padding(16)
     .borderRadius(22)
     .backgroundColor(CARD_BG)
-    .shadow({ radius: 18, color: '#10000000', offsetY: 8 })
+    .scale(this.pressableCardScale(`trend-card-${scope}`))
+    .shadow({ radius: this.pressableCardShadowRadius(`trend-card-${scope}`), color: '#10000000', offsetY: this.pressableCardShadowOffsetY(`trend-card-${scope}`) })
+    .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+    .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, `trend-card-${scope}`))
   }
 
   @Builder
@@ -2950,7 +3350,10 @@ struct Index {
     .padding(16)
     .borderRadius(22)
     .backgroundColor(CARD_BG)
-    .shadow({ radius: 18, color: '#10000000', offsetY: 8 })
+    .scale(this.pressableCardScale(`partner-rank-card-${scope}`))
+    .shadow({ radius: this.pressableCardShadowRadius(`partner-rank-card-${scope}`), color: '#10000000', offsetY: this.pressableCardShadowOffsetY(`partner-rank-card-${scope}`) })
+    .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+    .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, `partner-rank-card-${scope}`))
   }
 
   @Builder
@@ -2982,6 +3385,7 @@ struct Index {
       Text(this.rankName(row).substring(0, 1))
         .width(28)
         .height(28)
+        .lineHeight(28)
         .fontSize(13)
         .fontWeight(FontWeight.Bold)
         .fontColor('#FFFFFF')
@@ -3023,6 +3427,9 @@ struct Index {
           .textAlign(TextAlign.Center)
           .borderRadius(22)
           .backgroundColor(CARD_BG)
+          .scale(this.pressableCardScale('history-empty-card'))
+          .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+          .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'history-empty-card'))
       } else {
         ForEach(this.settledSessions().slice(0, 5), (session: GameSession) => {
           this.HistoryCard(session)
@@ -3094,69 +3501,113 @@ struct Index {
   @Builder
   private FriendsPage() {
     Column({ space: 16 }) {
-      Row({ space: 8 }) {
-        Text('⌕')
-          .fontSize(18)
-          .fontColor(BLUE)
-        Text('搜索牌友或牌局')
-          .fontSize(14)
-          .fontColor(TEXT_SECOND)
-      }
-      .height(44)
-      .width('100%')
-      .padding({ left: 14, right: 14 })
-      .borderRadius(22)
-      .backgroundColor(SOFT_BG)
-      .scale(this.pressableControlScale('friends-search-open'))
-      .animation({ duration: 150, curve: Curve.FastOutSlowIn })
-      .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, 'friends-search-open'))
-      .onClick(() => this.openFriendSearch())
-
-      if (this.selectableFriendCount() === 0) {
-        this.FriendListEmptyState()
-      } else {
-        Column({ space: 0 }) {
-          ForEach(this.users, (user: User) => {
-            if (user.id !== ledgerRepository.currentUser().id) {
-              this.FriendRow(user.displayName.substring(0, 1), user.displayName, `对局 ${this.friendGameCount(user.id)} 次 · 同桌胜率 ${this.friendWinRateText(user.id)}`, formatMoney(this.friendTotalScore(user.id)), this.friendTotalScore(user.id) >= 0 ? GREEN : RED, BLUE_SOFT, BLUE)
-            }
-          }, (user: User) => user.id)
-        }
-        .padding({ left: 16, right: 16 })
-        .width('100%')
-        .borderRadius(22)
-        .backgroundColor(CARD_BG)
-        .shadow({ radius: 18, color: '#10000000', offsetY: 8 })
-      }
+      this.FriendsHeader()
+      this.FriendSearchOpenBar()
+      this.FriendListContent()
     }
     .width('100%')
     .justifyContent(FlexAlign.Start)
     .alignItems(HorizontalAlign.Start)
+    .parallelGesture(
+      PanGesture({ fingers: 1, direction: PanDirection.All })
+        .onActionEnd((event: GestureEvent) => this.handleFriendPagePanEnd(event))
+    )
+    .animation({ duration: 260, curve: Curve.FastOutSlowIn })
+  }
+
+  @Builder
+  private FriendsHeader() {
+    Row() {
+      Column() {
+        Text(this.pageTitleFor(2))
+          .fontSize(26)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(TEXT_MAIN)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+    }
+    .width('100%')
+    .height(34)
+    .opacity(1)
+    .translate({ y: 0 })
+    .scale({ x: 1, y: 1 })
+    .animation({ duration: 280, curve: Curve.FastOutSlowIn })
+  }
+
+  @Builder
+  private FriendSearchOpenBar() {
+    Row({ space: 8 }) {
+      this.SearchGlyph(18, BLUE)
+      Text('搜索牌友或牌局')
+        .fontSize(14)
+        .fontColor(TEXT_SECOND)
+        .layoutWeight(1)
+    }
+    .height(44)
+    .alignItems(VerticalAlign.Center)
+    .width('100%')
+    .padding({ left: 14, right: 14, top: 0, bottom: 0 })
+    .borderRadius(22)
+    .backgroundColor(SOFT_BG)
+    .opacity(this.friendSearchOpenBarOpacity())
+    .scale(this.pressableControlScale('friends-search-open'))
+    .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+    .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, 'friends-search-open'))
+    .onClick(() => this.openFriendSearch())
   }
 
   @Builder
   private FriendSearchPage() {
-    Column({ space: 18 }) {
-      Row({ space: 10 }) {
-        Row({ space: 8 }) {
-          Text('⌕')
-            .fontSize(18)
-            .fontColor(BLUE)
-          TextInput({ text: this.friendSearchQuery, placeholder: '搜索牌友、牌局、输赢金额' })
-            .height(42)
-            .layoutWeight(1)
-            .fontSize(15)
-            .fontColor(TEXT_MAIN)
-            .placeholderColor(TEXT_SECOND)
-            .backgroundColor('#00000000')
-            .padding({ left: 0, right: 0 })
-            .onChange((value: string) => {
-              this.friendSearchQuery = value;
-            })
+    Column({ space: 14 }) {
+      this.FriendSearchHeaderBar()
+      this.FriendSearchInlineContent()
+    }
+    .width('100%')
+    .justifyContent(FlexAlign.Start)
+    .alignItems(HorizontalAlign.Start)
+    .opacity(this.friendSearchOverlayOpacity())
+    .translate({ y: this.friendSearchOverlayOffsetY() })
+    .animation({ duration: 280, curve: Curve.FastOutSlowIn })
+    .parallelGesture(
+      PanGesture({ fingers: 1, direction: PanDirection.Right })
+        .onActionEnd((event: GestureEvent) => {
+          if (event.offsetX >= 72 && Math.abs(event.offsetY) <= 80) {
+            this.closeFriendSearch();
+          }
+        })
+    )
+  }
+
+  @Builder
+  private FriendSearchHeaderBar() {
+    Row({ space: this.friendSearchHeaderGap() }) {
+      Row({ space: 8 }) {
+        this.SearchGlyph(18, BLUE)
+        if (this.friendSearchActive) {
+        TextInput({ text: this.friendSearchQuery, placeholder: '搜索牌友、牌局、输赢金额' })
+          .id(FRIEND_SEARCH_INPUT_ID)
+          .height(42)
+          .layoutWeight(1)
+          .fontSize(15)
+          .fontColor(TEXT_MAIN)
+          .placeholderColor(TEXT_SECOND)
+          .backgroundColor('#00000000')
+          .defaultFocus(true)
+          .padding({ left: 0, right: 0 })
+          .onAppear(() => {
+            setTimeout(() => {
+              focusControl.requestFocus(FRIEND_SEARCH_INPUT_ID);
+            }, 120);
+          })
+          .onChange((value: string) => {
+            this.friendSearchQuery = value;
+          })
           if (this.friendSearchQuery.length > 0) {
             Text('×')
               .width(24)
               .height(24)
+              .lineHeight(24)
               .fontSize(18)
               .fontColor(TEXT_SECOND)
               .textAlign(TextAlign.Center)
@@ -3169,26 +3620,58 @@ struct Index {
                 this.friendSearchQuery = '';
               })
           }
+        } else {
+          Text('搜索牌友或牌局')
+            .fontSize(14)
+            .fontColor(TEXT_SECOND)
+            .layoutWeight(1)
         }
-        .height(46)
-        .layoutWeight(1)
-        .padding({ left: 14, right: 10 })
-        .borderRadius(23)
-        .backgroundColor(SOFT_BG)
+      }
+      .height(this.friendSearchBarHeight())
+      .alignItems(VerticalAlign.Center)
+      .layoutWeight(1)
+      .padding({ left: 14, right: this.friendSearchBarPaddingRight(), top: 0, bottom: 0 })
+      .borderRadius(this.friendSearchBarRadius())
+      .backgroundColor(SOFT_BG)
+      .shadow({ radius: this.friendSearchExpandedChrome() ? 12 : 0, color: '#08000000', offsetY: this.friendSearchExpandedChrome() ? 4 : 0 })
+      .onClick(() => {
+        if (!this.friendSearchActive) {
+          this.openFriendSearch();
+        }
+      })
 
+      if (this.friendSearchActive) {
         Text('取消')
+          .width(this.friendSearchCancelWidth())
+          .height(40)
+          .lineHeight(40)
           .fontSize(15)
-          .fontColor(BLUE)
           .fontWeight(FontWeight.Bold)
+          .fontColor(BLUE)
+          .textAlign(TextAlign.Center)
+          .clip(true)
           .scale(this.pressableControlScale('friend-search-cancel'))
-          .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+          .opacity(this.friendSearchCancelOpacity())
+          .translate({ y: this.friendSearchMotionReady ? 0 : 6 })
+          .animation({ duration: 260, curve: Curve.FastOutSlowIn })
           .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, 'friend-search-cancel'))
           .onClick(() => this.closeFriendSearch())
       }
-      .width('100%')
+    }
+    .height(this.friendSearchBarHeight())
+    .alignItems(VerticalAlign.Center)
+    .width('100%')
+    .scale(this.friendSearchBarScale())
+    .translate({ y: this.friendSearchBarOffsetY() })
+    .animation({ duration: 280, curve: Curve.FastOutSlowIn })
+    .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, 'friends-search-open'))
+  }
 
+  @Builder
+  private FriendSearchInlineContent() {
+    Column({ space: 18 }) {
       if (this.friendSearchQuery.trim().length === 0) {
-        this.FriendSearchDiscovery()
+        this.FriendSearchHintCard()
       } else {
         this.FriendSearchResults()
       }
@@ -3196,7 +3679,63 @@ struct Index {
     .width('100%')
     .justifyContent(FlexAlign.Start)
     .alignItems(HorizontalAlign.Start)
-    .transition(TransitionEffect.OPACITY.animation({ duration: 180, curve: Curve.FastOutSlowIn }))
+    .opacity(this.friendSearchContentOpacity())
+    .translate({ y: this.friendSearchContentOffsetY() })
+    .animation({ duration: 280, curve: Curve.FastOutSlowIn })
+    .transition(TransitionEffect.OPACITY.animation({ duration: 220, curve: Curve.FastOutSlowIn }))
+  }
+
+  @Builder
+  private FriendSearchHintCard() {
+    Column({ space: 6 }) {
+      Text('查找牌友')
+        .fontSize(16)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(TEXT_MAIN)
+        .width('100%')
+      Text('输入名字查找和你打过牌的牌友')
+        .fontSize(13)
+        .fontColor(TEXT_SECOND)
+        .lineHeight(19)
+        .width('100%')
+    }
+    .width('100%')
+    .padding({ left: 16, right: 16, top: 14, bottom: 14 })
+    .borderRadius(18)
+    .backgroundColor('#F8FAFF')
+    .border({ width: 1, color: '#DDE7FF' })
+    .opacity(this.friendSearchContentOpacity())
+    .translate({ y: this.friendSearchContentOffsetY() })
+    .animation({ duration: 280, curve: Curve.FastOutSlowIn })
+  }
+
+  @Builder
+  private FriendListContent() {
+    Column({ space: 16 }) {
+      if (this.selectableFriendCount() === 0) {
+        this.FriendListEmptyState()
+      } else {
+        Column({ space: 0 }) {
+          ForEach(this.users, (user: User) => {
+            if (user.id !== ledgerRepository.currentUser().id) {
+              this.FriendRow(user.displayName, `对局 ${this.friendGameCount(user.id)} 次 · 同桌胜率 ${this.friendWinRateText(user.id)}`, formatMoney(this.friendTotalScore(user.id)), this.friendTotalScore(user.id) >= 0 ? GREEN : RED)
+            }
+          }, (user: User) => user.id)
+        }
+        .padding({ left: 16, right: 16 })
+        .width('100%')
+        .borderRadius(22)
+        .backgroundColor(CARD_BG)
+        .scale(this.pressableCardScale('friends-list-card'))
+        .shadow({ radius: this.pressableCardShadowRadius('friends-list-card'), color: '#10000000', offsetY: this.pressableCardShadowOffsetY('friends-list-card') })
+        .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+        .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'friends-list-card'))
+      }
+    }
+    .width('100%')
+    .opacity(this.friendSearchActive ? 0 : 1)
+    .translate({ y: this.friendSearchActive ? -18 : 0 })
+    .animation({ duration: 220, curve: Curve.FastOutSlowIn })
   }
 
   @Builder
@@ -3229,7 +3768,7 @@ struct Index {
         Column({ space: 0 }) {
           ForEach(this.users, (user: User) => {
             if (this.friendSearchUserVisible(user)) {
-              this.FriendSearchResultRow(user.displayName.substring(0, 1), user.displayName, `对局 ${this.friendGameCount(user.id)} 次 · 同桌胜率 ${this.friendWinRateText(user.id)}`, formatMoney(this.friendTotalScore(user.id)), this.friendTotalScore(user.id) >= 0 ? GREEN : RED, BLUE_SOFT, BLUE)
+              this.FriendSearchResultRow(user.displayName, `对局 ${this.friendGameCount(user.id)} 次 · 同桌胜率 ${this.friendWinRateText(user.id)}`, formatMoney(this.friendTotalScore(user.id)), this.friendTotalScore(user.id) >= 0 ? GREEN : RED)
             }
           }, (user: User) => user.id)
           ForEach(this.sessions, (session: GameSession) => {
@@ -3242,7 +3781,10 @@ struct Index {
         .width('100%')
         .borderRadius(22)
         .backgroundColor(CARD_BG)
-        .shadow({ radius: 18, color: '#10000000', offsetY: 8 })
+        .scale(this.pressableCardScale('search-results-card'))
+        .shadow({ radius: this.pressableCardShadowRadius('search-results-card'), color: '#10000000', offsetY: this.pressableCardShadowOffsetY('search-results-card') })
+        .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+        .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'search-results-card'))
       }
     }
     .width('100%')
@@ -3280,17 +3822,20 @@ struct Index {
   }
 
   @Builder
-  private FriendSearchResultRow(letter: string, name: string, summary: string, amount: string, amountColor: string, avatarBg: string, avatarColor: string) {
-    Row({ space: 12 }) {
-      Text(letter)
-        .width(36)
-        .height(36)
-        .fontSize(14)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(avatarColor)
-        .textAlign(TextAlign.Center)
-        .borderRadius(18)
-        .backgroundColor(avatarBg)
+  private SearchGlyph(size: number, color: string) {
+    Stack({ alignContent: Alignment.Center }) {
+      SymbolGlyph($r('sys.symbol.magnifyingglass'))
+        .fontSize(size)
+        .fontWeight(FontWeight.Medium)
+        .fontColor([color])
+    }
+    .width(24)
+    .height(24)
+  }
+
+  @Builder
+  private FriendSearchResultRow(name: string, summary: string, amount: string, amountColor: string) {
+    Row({ space: 10 }) {
       Column({ space: 4 }) {
         Text(name)
           .fontSize(16)
@@ -3318,6 +3863,7 @@ struct Index {
       Text('局')
         .width(36)
         .height(36)
+        .lineHeight(36)
         .fontSize(14)
         .fontWeight(FontWeight.Bold)
         .fontColor(BLUE)
@@ -3348,14 +3894,13 @@ struct Index {
   @Builder
   private SearchEmptyState() {
     Column({ space: 10 }) {
-      Text('⌕')
-        .width(54)
-        .height(54)
-        .fontSize(26)
-        .fontColor(BLUE)
-        .textAlign(TextAlign.Center)
-        .borderRadius(27)
-        .backgroundColor(BLUE_SOFT)
+      Stack({ alignContent: Alignment.Center }) {
+        this.SearchGlyph(26, BLUE)
+      }
+      .width(54)
+      .height(54)
+      .borderRadius(27)
+      .backgroundColor(BLUE_SOFT)
       Text('没有找到相关牌友或牌局')
         .fontSize(16)
         .fontWeight(FontWeight.Bold)
@@ -3369,21 +3914,15 @@ struct Index {
     .justifyContent(FlexAlign.Center)
     .borderRadius(24)
     .backgroundColor(CARD_BG)
-    .shadow({ radius: 18, color: '#10000000', offsetY: 8 })
+    .scale(this.pressableCardScale('search-empty-card'))
+    .shadow({ radius: this.pressableCardShadowRadius('search-empty-card'), color: '#10000000', offsetY: this.pressableCardShadowOffsetY('search-empty-card') })
+    .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+    .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'search-empty-card'))
   }
 
   @Builder
-  private FriendRow(letter: string, name: string, summary: string, amount: string, amountColor: string, avatarBg: string, avatarColor: string) {
-    Row({ space: 12 }) {
-      Text(letter)
-        .width(34)
-        .height(34)
-        .fontSize(14)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(avatarColor)
-        .textAlign(TextAlign.Center)
-        .borderRadius(17)
-        .backgroundColor(avatarBg)
+  private FriendRow(name: string, summary: string, amount: string, amountColor: string) {
+    Row({ space: 10 }) {
       Column({ space: 4 }) {
         Text(name)
           .fontSize(16)
@@ -3424,7 +3963,10 @@ struct Index {
     .padding({ left: 18, right: 18 })
     .borderRadius(22)
     .backgroundColor(CARD_BG)
-    .shadow({ radius: 18, color: '#10000000', offsetY: 8 })
+    .scale(this.pressableCardScale('friend-list-empty-card'))
+    .shadow({ radius: this.pressableCardShadowRadius('friend-list-empty-card'), color: '#10000000', offsetY: this.pressableCardShadowOffsetY('friend-list-empty-card') })
+    .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+    .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'friend-list-empty-card'))
   }
 
   @Builder
@@ -3452,7 +3994,10 @@ struct Index {
       .width('100%')
       .borderRadius(22)
       .backgroundColor(CARD_BG)
-      .shadow({ radius: 18, color: '#10000000', offsetY: 8 })
+      .scale(this.pressableCardScale('mine-stats-card'))
+      .shadow({ radius: this.pressableCardShadowRadius('mine-stats-card'), color: '#10000000', offsetY: this.pressableCardShadowOffsetY('mine-stats-card') })
+      .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+      .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'mine-stats-card'))
 
       Column({ space: 0 }) {
         this.SettingRow('关于', 'v0.1')
@@ -3461,7 +4006,10 @@ struct Index {
       .width('100%')
       .borderRadius(22)
       .backgroundColor(CARD_BG)
-      .shadow({ radius: 18, color: '#10000000', offsetY: 8 })
+      .scale(this.pressableCardScale('mine-about-card'))
+      .shadow({ radius: this.pressableCardShadowRadius('mine-about-card'), color: '#10000000', offsetY: this.pressableCardShadowOffsetY('mine-about-card') })
+      .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+      .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'mine-about-card'))
 
       Button(this.confirmClearData ? '再次点击确认清空所有数据' : '清空所有数据')
         .height(52)
@@ -3545,29 +4093,22 @@ struct Index {
         .fontWeight(FontWeight.Bold)
         .fontColor(TEXT_MAIN)
       Column({ space: 8 }) {
-        Text('牌局名称')
-          .fontSize(14)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(TEXT_MAIN)
-        Row() {
-          TextInput({ text: this.newSessionTitle, placeholder: '例如：周末娱乐局' })
-            .height(42)
-            .layoutWeight(1)
-            .borderRadius(21)
-            .backgroundColor('#F4F1EC')
-            .onChange((value: string) => this.newSessionTitle = value)
-          Text('×').width(24).fontSize(18).fontColor(TEXT_SECOND)
-        }
+        this.VerticalTextField('牌局名称', this.newSessionTitle, '例如：周末娱乐局', (value: string) => this.newSessionTitle = value)
+        this.CreateDefaultBuyInField()
       }
       Column({ space: 10 }) {
         Text('离线模式参与人')
           .fontSize(14)
           .fontWeight(FontWeight.Bold)
           .fontColor(TEXT_MAIN)
-        this.CreateFixedPlayerRow('牌友1', this.newPlayer0Name, this.newPlayer0BuyIn, (value: string) => this.newPlayer0BuyIn = value)
-        this.CreatePlayerInputRow('牌友2', this.newPlayer1Name, this.newPlayer1BuyIn, (value: string) => this.newPlayer1Name = value, (value: string) => this.newPlayer1BuyIn = value, () => this.openFriendPicker(1))
-        this.CreatePlayerInputRow('牌友3', this.newPlayer2Name, this.newPlayer2BuyIn, (value: string) => this.newPlayer2Name = value, (value: string) => this.newPlayer2BuyIn = value, () => this.openFriendPicker(2))
-        this.CreatePlayerInputRow('牌友4', this.newPlayer3Name, this.newPlayer3BuyIn, (value: string) => this.newPlayer3Name = value, (value: string) => this.newPlayer3BuyIn = value, () => this.openFriendPicker(3))
+        this.CreateFixedPlayerRow('牌友1', this.newPlayer0Name)
+        this.CreatePlayer0BuyInStepper()
+        this.CreatePlayerInputRow('牌友2', this.newPlayer1Name, (value: string) => this.newPlayer1Name = value, () => this.openFriendPicker(1))
+        this.CreatePlayer1BuyInStepper()
+        this.CreatePlayerInputRow('牌友3', this.newPlayer2Name, (value: string) => this.newPlayer2Name = value, () => this.openFriendPicker(2))
+        this.CreatePlayer2BuyInStepper()
+        this.CreatePlayerInputRow('牌友4', this.newPlayer3Name, (value: string) => this.newPlayer3Name = value, () => this.openFriendPicker(3))
+        this.CreatePlayer3BuyInStepper()
       }
       Button('开始记账')
         .height(50)
@@ -3668,10 +4209,13 @@ struct Index {
           .lineHeight(20)
           .width('100%')
       }
-      .padding(16)
-      .borderRadius(22)
-      .backgroundColor(CARD_BG)
-      .shadow({ radius: 18, color: '#10000000', offsetY: 8 })
+    .padding(16)
+    .borderRadius(22)
+    .backgroundColor(CARD_BG)
+    .scale(this.pressableCardScale(`history-overview-card-${session.id}`))
+    .shadow({ radius: this.pressableCardShadowRadius(`history-overview-card-${session.id}`), color: '#10000000', offsetY: this.pressableCardShadowOffsetY(`history-overview-card-${session.id}`) })
+    .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+    .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, `history-overview-card-${session.id}`))
 
       Column({ space: 8 }) {
         this.SectionTitle('最终账面', `总入场 ${this.sessionBuyInTotal(session)}`)
@@ -3683,7 +4227,10 @@ struct Index {
       .padding(16)
       .borderRadius(22)
       .backgroundColor(CARD_BG)
-      .shadow({ radius: 18, color: '#10000000', offsetY: 8 })
+      .scale(this.pressableCardScale(`history-balance-card-${session.id}`))
+      .shadow({ radius: this.pressableCardShadowRadius(`history-balance-card-${session.id}`), color: '#10000000', offsetY: this.pressableCardShadowOffsetY(`history-balance-card-${session.id}`) })
+      .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+      .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, `history-balance-card-${session.id}`))
 
       Column({ space: 10 }) {
         this.SectionTitle('进出账流水', `${this.currentRoundCountFor(session)} 笔`)
@@ -3696,7 +4243,7 @@ struct Index {
           .height(this.historyRoundListHeight(session))
           .width('100%')
           .scrollBar(BarState.Off)
-          .edgeEffect(EdgeEffect.None)
+          .edgeEffect(EdgeEffect.Spring)
         } else {
           Text('暂无流水')
             .fontSize(13)
@@ -3709,7 +4256,10 @@ struct Index {
       .padding(16)
       .borderRadius(22)
       .backgroundColor(CARD_BG)
-      .shadow({ radius: 18, color: '#10000000', offsetY: 8 })
+      .scale(this.pressableCardScale(`history-rounds-card-${session.id}`))
+      .shadow({ radius: this.pressableCardShadowRadius(`history-rounds-card-${session.id}`), color: '#10000000', offsetY: this.pressableCardShadowOffsetY(`history-rounds-card-${session.id}`) })
+      .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+      .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, `history-rounds-card-${session.id}`))
     }
     .width('100%')
     .padding({ left: 0, right: 0, top: 0, bottom: 30 })
@@ -3818,7 +4368,10 @@ struct Index {
       .padding(16)
       .borderRadius(22)
       .backgroundColor(CARD_BG)
-      .shadow({ radius: 18, color: '#10000000', offsetY: 8 })
+      .scale(this.pressableCardScale(`latest-closed-card-${scope}`))
+      .shadow({ radius: this.pressableCardShadowRadius(`latest-closed-card-${scope}`), color: '#10000000', offsetY: this.pressableCardShadowOffsetY(`latest-closed-card-${scope}`) })
+      .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+      .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, `latest-closed-card-${scope}`))
     } else {
       Column({ space: 12 }) {
         this.SectionTitle('最近封账', '已归档')
@@ -3827,7 +4380,10 @@ struct Index {
       .padding(16)
       .borderRadius(22)
       .backgroundColor(CARD_BG)
-      .shadow({ radius: 18, color: '#10000000', offsetY: 8 })
+      .scale(this.pressableCardScale(`latest-closed-empty-card-${scope}`))
+      .shadow({ radius: this.pressableCardShadowRadius(`latest-closed-empty-card-${scope}`), color: '#10000000', offsetY: this.pressableCardShadowOffsetY(`latest-closed-empty-card-${scope}`) })
+      .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+      .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, `latest-closed-empty-card-${scope}`))
     }
   }
 
@@ -3863,16 +4419,7 @@ struct Index {
 
   @Builder
   private EntryPlayerPickerOption(user: User) {
-    Row({ space: 12 }) {
-      Text(user.displayName.substring(0, 1))
-        .width(36)
-        .height(36)
-        .fontSize(14)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#FFFFFF')
-        .textAlign(TextAlign.Center)
-        .borderRadius(18)
-        .backgroundColor(user.avatarColor)
+    Row({ space: 10 }) {
       Column({ space: 4 }) {
         Text(user.displayName)
           .fontSize(16)
@@ -3958,6 +4505,7 @@ struct Index {
       Text(user.displayName.substring(0, 1))
         .width(36)
         .height(36)
+        .lineHeight(36)
         .fontSize(14)
         .fontWeight(FontWeight.Bold)
         .fontColor('#FFFFFF')
@@ -3985,45 +4533,39 @@ struct Index {
   }
 
   @Builder
-  private CreateFixedPlayerRow(label: string, name: string, amount: string, onAmountChange: (value: string) => void) {
-    Row({ space: 10 }) {
+  private CreateFixedPlayerRow(label: string, name: string) {
+    Column({ space: 8 }) {
       Text(label)
-        .width(46)
         .fontSize(13)
         .fontWeight(FontWeight.Medium)
         .fontColor(TEXT_SECOND)
+        .width('100%')
       Text(name)
         .height(42)
-        .layoutWeight(1)
+        .width('100%')
         .fontSize(15)
         .fontWeight(FontWeight.Medium)
         .fontColor(TEXT_MAIN)
         .padding({ left: 12, right: 12 })
         .borderRadius(13)
         .backgroundColor('#F8F6F2')
-      TextInput({ text: amount, placeholder: '金额' })
-        .height(42)
-        .width(82)
-        .fontSize(15)
-        .fontColor(TEXT_MAIN)
-        .textAlign(TextAlign.Center)
-        .borderRadius(13)
-        .backgroundColor('#F8F6F2')
-        .onChange(onAmountChange)
     }
     .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding({ top: 4, bottom: 8 })
   }
 
   @Builder
-  private CreatePlayerInputRow(label: string, name: string, amount: string, onNameChange: (value: string) => void, onAmountChange: (value: string) => void, onPicker: () => void) {
-    Row({ space: 10 }) {
+  private CreatePlayerInputRow(label: string, name: string, onNameChange: (value: string) => void, onPicker: () => void) {
+    Column({ space: 8 }) {
       Text(label)
-        .width(46)
         .fontSize(13)
         .fontWeight(FontWeight.Medium)
         .fontColor(TEXT_SECOND)
+        .width('100%')
       Row({ space: 6 }) {
-        TextInput({ text: name, placeholder: '输入或选择牌友' })
+        TextInput({ text: name, placeholder: '选择牌友' })
+          .id(`player-name-input-${label}-${name}`)
           .height(40)
           .layoutWeight(1)
           .fontSize(15)
@@ -4031,33 +4573,206 @@ struct Index {
           .padding({ left: 0, right: 0 })
           .backgroundColor('#00000000')
           .onChange(onNameChange)
-        Text('⌄')
+        Row() {
+          SymbolGlyph($r('sys.symbol.chevron_down'))
+            .fontSize(18)
+            .fontWeight(FontWeight.Bold)
+            .fontColor([TEXT_SECOND])
+        }
           .width(28)
           .height(32)
-          .fontSize(18)
-          .fontColor(TEXT_SECOND)
-          .textAlign(TextAlign.Center)
+          .justifyContent(FlexAlign.Center)
+          .alignItems(VerticalAlign.Center)
           .scale(this.pressableControlScale(`player-picker-${label}`))
           .animation({ duration: 150, curve: Curve.FastOutSlowIn })
           .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, `player-picker-${label}`))
           .onClick(onPicker)
       }
       .height(42)
-      .layoutWeight(1)
+      .width('100%')
       .padding({ left: 12, right: 4 })
       .borderRadius(13)
       .backgroundColor('#F8F6F2')
-      TextInput({ text: amount, placeholder: '金额' })
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding({ top: 4, bottom: 8 })
+  }
+
+  @Builder
+  private CreatePlayer0BuyInStepper() {
+    Row({ space: 10 }) {
+      Button() {
+        SymbolGlyph($r('sys.symbol.minus'))
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor([BLUE])
+      }
+        .width(42)
         .height(42)
-        .width(82)
-        .fontSize(15)
+        .borderRadius(21)
+        .backgroundColor('#F8F6F2')
+        .stateEffect(true)
+        .onClick(() => this.adjustNewPlayerBuyIn(0, -10))
+
+      Text(this.amountText(this.newPlayer0BuyIn, this.parsePositiveAmount(this.newDefaultBuyIn, 200)))
+        .height(42)
+        .layoutWeight(1)
+        .fontSize(16)
+        .fontWeight(FontWeight.Bold)
         .fontColor(TEXT_MAIN)
         .textAlign(TextAlign.Center)
         .borderRadius(13)
         .backgroundColor('#F8F6F2')
-        .onChange(onAmountChange)
+
+      Button() {
+        SymbolGlyph($r('sys.symbol.plus'))
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor([BLUE])
+      }
+        .width(42)
+        .height(42)
+        .borderRadius(21)
+        .backgroundColor('#F8F6F2')
+        .stateEffect(true)
+        .onClick(() => this.adjustNewPlayerBuyIn(0, 10))
     }
     .width('100%')
+    .height(42)
+    .alignItems(VerticalAlign.Center)
+  }
+
+  @Builder
+  private CreatePlayer1BuyInStepper() {
+    Row({ space: 10 }) {
+      Button() {
+        SymbolGlyph($r('sys.symbol.minus'))
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor([BLUE])
+      }
+        .width(42)
+        .height(42)
+        .borderRadius(21)
+        .backgroundColor('#F8F6F2')
+        .stateEffect(true)
+        .onClick(() => this.adjustNewPlayerBuyIn(1, -10))
+
+      Text(this.amountText(this.newPlayer1BuyIn, this.parsePositiveAmount(this.newDefaultBuyIn, 200)))
+        .height(42)
+        .layoutWeight(1)
+        .fontSize(16)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(TEXT_MAIN)
+        .textAlign(TextAlign.Center)
+        .borderRadius(13)
+        .backgroundColor('#F8F6F2')
+
+      Button() {
+        SymbolGlyph($r('sys.symbol.plus'))
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor([BLUE])
+      }
+        .width(42)
+        .height(42)
+        .borderRadius(21)
+        .backgroundColor('#F8F6F2')
+        .stateEffect(true)
+        .onClick(() => this.adjustNewPlayerBuyIn(1, 10))
+    }
+    .width('100%')
+    .height(42)
+    .alignItems(VerticalAlign.Center)
+  }
+
+  @Builder
+  private CreatePlayer2BuyInStepper() {
+    Row({ space: 10 }) {
+      Button() {
+        SymbolGlyph($r('sys.symbol.minus'))
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor([BLUE])
+      }
+        .width(42)
+        .height(42)
+        .borderRadius(21)
+        .backgroundColor('#F8F6F2')
+        .stateEffect(true)
+        .onClick(() => this.adjustNewPlayerBuyIn(2, -10))
+
+      Text(this.amountText(this.newPlayer2BuyIn, this.parsePositiveAmount(this.newDefaultBuyIn, 200)))
+        .height(42)
+        .layoutWeight(1)
+        .fontSize(16)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(TEXT_MAIN)
+        .textAlign(TextAlign.Center)
+        .borderRadius(13)
+        .backgroundColor('#F8F6F2')
+
+      Button() {
+        SymbolGlyph($r('sys.symbol.plus'))
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor([BLUE])
+      }
+        .width(42)
+        .height(42)
+        .borderRadius(21)
+        .backgroundColor('#F8F6F2')
+        .stateEffect(true)
+        .onClick(() => this.adjustNewPlayerBuyIn(2, 10))
+    }
+    .width('100%')
+    .height(42)
+    .alignItems(VerticalAlign.Center)
+  }
+
+  @Builder
+  private CreatePlayer3BuyInStepper() {
+    Row({ space: 10 }) {
+      Button() {
+        SymbolGlyph($r('sys.symbol.minus'))
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor([BLUE])
+      }
+        .width(42)
+        .height(42)
+        .borderRadius(21)
+        .backgroundColor('#F8F6F2')
+        .stateEffect(true)
+        .onClick(() => this.adjustNewPlayerBuyIn(3, -10))
+
+      Text(this.amountText(this.newPlayer3BuyIn, this.parsePositiveAmount(this.newDefaultBuyIn, 200)))
+        .height(42)
+        .layoutWeight(1)
+        .fontSize(16)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(TEXT_MAIN)
+        .textAlign(TextAlign.Center)
+        .borderRadius(13)
+        .backgroundColor('#F8F6F2')
+
+      Button() {
+        SymbolGlyph($r('sys.symbol.plus'))
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor([BLUE])
+      }
+        .width(42)
+        .height(42)
+        .borderRadius(21)
+        .backgroundColor('#F8F6F2')
+        .stateEffect(true)
+        .onClick(() => this.adjustNewPlayerBuyIn(3, 10))
+    }
+    .width('100%')
+    .height(42)
+    .alignItems(VerticalAlign.Center)
   }
 
   @Builder
@@ -4114,57 +4829,47 @@ struct Index {
 
   @Builder
   private GlassNav() {
-    Stack({ alignContent: Alignment.Center }) {
-      Column()
-        .width('96%')
-        .height(58)
-        .borderRadius(29)
-        .backgroundColor('#42FFFFFF')
-        .border({ width: 1, color: '#BFFFFFFF' })
-
-      Column()
-        .width('78%')
-        .height(1)
-        .backgroundColor('#CCFFFFFF')
-        .opacity(0.72)
-        .margin({ bottom: 50 })
-
-      Row({ space: 2 }) {
+    Flex({
+      direction: FlexDirection.Row,
+      justifyContent: FlexAlign.SpaceAround,
+      alignItems: ItemAlign.Center
+    }) {
         this.NavItem('牌局', 0)
         this.NavItem('统计', 1)
         this.NavItem('牌友', 2)
         this.NavItem('我的', 3)
-      }
-      .height(60)
-      .width('100%')
-      .padding({ left: 8, right: 8, top: 4, bottom: 4 })
     }
-    .height(76)
+    .height(60)
     .width('90%')
-    .padding({ left: 6, right: 6, top: 6, bottom: 6 })
+    .padding({ left: 10, right: 10 })
     .margin({ bottom: 24 })
-    .borderRadius(38)
+    .borderRadius(30)
+    .backdropBlur(30)
     .backgroundColor(NAV_BG)
-    .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
-    .border({ width: 1, color: '#D8FFFFFF' })
-    .shadow({ radius: 30, color: '#22000000', offsetY: 12 })
+    .shadow({ radius: 15, color: '#18000000', offsetY: 4, type: ShadowType.COLOR })
   }
 
   @Builder
   private NavItem(label: string, index: number) {
-    Column({ space: 4 }) {
-      this.NavGlyph(index)
+    Column() {
+      Row() {
+        this.NavGlyph(index)
+      }
+      .height(28)
+      .justifyContent(FlexAlign.Center)
+      .alignItems(VerticalAlign.Center)
+      .translate({ y: this.currentTab === index ? -2 : 0 })
+      .animation({ duration: 180, curve: Curve.FastOutSlowIn })
+
       Text(label)
         .fontSize(10)
-        .fontWeight(FontWeight.Bold)
+        .fontWeight(FontWeight.Medium)
         .fontColor(this.navItemColor(index))
     }
-    .height(56)
-    .layoutWeight(1)
-    .borderRadius(28)
+    .width(60)
+    .height(60)
     .justifyContent(FlexAlign.Center)
-    .backgroundColor(this.currentTab === index ? '#242F63F4' : '#00000000')
-    .scale(this.navItemScale(index))
+    .alignItems(HorizontalAlign.Center)
     .opacity(this.pressedNavIndex === index ? 0.72 : 1)
     .animation({ duration: 180, curve: Curve.FastOutSlowIn })
     .onTouch((event: TouchEvent) => {
@@ -4181,16 +4886,6 @@ struct Index {
     return this.currentTab === index ? BLUE : ICON_GRAY;
   }
 
-  private navItemScale(index: number): ScaleOptions {
-    if (this.pressedNavIndex === index) {
-      return { x: 0.94, y: 0.94 };
-    }
-    if (this.currentTab === index) {
-      return { x: 1.04, y: 1.04 };
-    }
-    return { x: 1, y: 1 };
-  }
-
   @Builder
   private NavGlyph(index: number) {
     if (index === 0) {
@@ -4202,7 +4897,8 @@ struct Index {
         }
         .width(22)
         .height(22)
-        .padding({ left: 5, right: 4, top: 5 })
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
         .border({ width: 1.5, color: BLUE })
         .borderRadius(5)
       } else {

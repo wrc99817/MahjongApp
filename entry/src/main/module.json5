@@ -19,7 +19,7 @@
         "description": "$string:entry_desc",
         "icon": "$media:app_icon_blue",
         "label": "$string:app_name",
-        "startWindowIcon": "$media:app_icon_blue",
+        "startWindowIcon": "$media:start_window_icon_transparent",
         "startWindowBackground": "$color:start_window_background",
         "exported": true,
         "skills": [
@@ -32,6 +32,11 @@
             ]
           }
         ]
+      }
+    ],
+    "requestPermissions": [
+      {
+        "name": "ohos.permission.SET_WINDOW_TRANSPARENT"
       }
     ]
   }
