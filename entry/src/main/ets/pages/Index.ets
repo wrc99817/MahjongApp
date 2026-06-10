@@ -19,6 +19,18 @@ const MUTED_GREEN: string = '#EAF4EE';
 const ICON_GRAY: string = '#7B818B';
 const BUY_IN_NOTE_MARKER: string = '||buyin:';
 const FRIEND_SEARCH_INPUT_ID: string = 'friend-search-input';
+const FRIEND_SEARCH_PLACEHOLDER: string = '搜索牌友或牌局';
+const FRIEND_SEARCH_PLACEHOLDER_FONT_SIZE: number = 14;
+const FRIEND_SEARCH_BAR_HEIGHT: number = 44;
+const FRIEND_SEARCH_BAR_RADIUS: number = 22;
+const FRIEND_SEARCH_BAR_HORIZONTAL_PADDING: number = 14;
+const CASHFLOW_ROW_HEIGHT: number = 104;
+const CASHFLOW_ROW_GAP: number = 8;
+const CASHFLOW_ROW_RADIUS: number = 18;
+const CASHFLOW_CONTEXT_MENU_WIDTH: number = 224;
+const CASHFLOW_CONTEXT_MENU_HEIGHT: number = 68;
+const CASHFLOW_CONTEXT_MENU_GAP: number = 16;
+const CASHFLOW_CONTEXT_EDGE_SPACE: number = 24;
 
 @Observed
 class EntryInputDraft {
@@ -107,7 +119,9 @@ struct Index {
   @State private activeSheet: number = 0;
   @State private statsMode: number = 0;
   @State private friendSearchActive: boolean = false;
+  @State private friendSearchVisible: boolean = false;
   @State private friendSearchMotionReady: boolean = false;
+  @State private friendSearchClosing: boolean = false;
   @State private friendSearchBaseSearchHidden: boolean = false;
   @State private friendSearchQuery: string = '';
   @State private entryDraft: EntryInputDraft = new EntryInputDraft();
@@ -121,6 +135,15 @@ struct Index {
   @State private pressedCardKey: string = '';
   @State private pressedControlKey: string = '';
   @State private detailEdgePanStartX: number = -1;
+  @State private rootLeft: number = 0;
+  @State private rootTop: number = 0;
+  @State private rootHeight: number = 812;
+  @State private cashflowContextRoundId: string = '';
+  @State private cashflowContextRowLeft: number = 36;
+  @State private cashflowContextRowWidth: number = 320;
+  @State private cashflowContextRowTop: number = 0;
+  @State private cashflowContextRowHeight: number = CASHFLOW_ROW_HEIGHT;
+  @State private cashflowContextProgress: number = 0;
   @State private confirmClearData: boolean = false;
   @State private lastSettledTitle: string = '';
   @State private lastSettledWinnerName: string = '';
@@ -142,9 +165,9 @@ struct Index {
   @State private newDefaultBuyIn: string = '200';
   @State private basePoint: string = '10';
   @State private newPlayer0Name: string = '我';
-  @State private newPlayer1Name: string = '';
-  @State private newPlayer2Name: string = '';
-  @State private newPlayer3Name: string = '';
+  @State private newPlayer1Name: string = '牌友1';
+  @State private newPlayer2Name: string = '牌友2';
+  @State private newPlayer3Name: string = '牌友3';
   @State private newPlayer0BuyIn: string = '';
   @State private newPlayer1BuyIn: string = '';
   @State private newPlayer2BuyIn: string = '';
@@ -152,6 +175,7 @@ struct Index {
   @State private editSessionTitle: string = '';
   @State private editBasePoint: string = '10';
   @State private editNote: string = '';
+  @State private editDefaultBuyIn: string = '200';
   @State private editPlayer0Name: string = '我';
   @State private editPlayer1Name: string = '阿林';
   @State private editPlayer2Name: string = '老周';
@@ -164,17 +188,23 @@ struct Index {
   @State private historyDetailSessionId: string = '';
   private mainTabSwiperController: SwiperController = new SwiperController();
   private syncService: SyncService = new SyncService();
+  private cashflowRowAreas: Record<string, string> = {};
+  private cashflowContextMotionToken: number = 0;
 
   aboutToAppear(): void {
     this.refresh();
   }
 
   onBackPress(): boolean {
+    if (this.cashflowContextRoundId.length > 0) {
+      this.closeCashflowContextMenu();
+      return true;
+    }
     if (this.hasBackDetailPage()) {
       this.navigateBackFromDetail();
       return true;
     }
-    if (this.currentTab === 2 && this.friendSearchActive) {
+    if (this.currentTab === 2 && this.friendSearchVisible) {
       this.closeFriendSearch();
       return true;
     }
@@ -301,6 +331,15 @@ struct Index {
     return this.buyInForUser(this.sessionPlayerId(index));
   }
 
+  private currentDefaultBuyIn(): number {
+    const session = this.currentSession();
+    if (!session) {
+      return 200;
+    }
+    const amount = Number(session.defaultBuyIn ?? 200);
+    return Number.isNaN(amount) ? 200 : amount;
+  }
+
   private playerNameById(userId: string): string {
     const user = this.userById(userId);
     return user ? user.displayName : '玩家';
@@ -354,6 +393,29 @@ struct Index {
     }
   }
 
+  private adjustEditDefaultBuyIn(delta: number): void {
+    const previousDefault = this.parsePositiveAmount(this.editDefaultBuyIn, 200);
+    const nextDefault = Math.max(0, previousDefault + delta);
+    this.editDefaultBuyIn = `${nextDefault}`;
+    this.editPlayer0BuyIn = `${nextDefault}`;
+    this.editPlayer1BuyIn = `${nextDefault}`;
+    this.editPlayer2BuyIn = `${nextDefault}`;
+    this.editPlayer3BuyIn = `${nextDefault}`;
+  }
+
+  private adjustEditPlayerBuyIn(index: number, delta: number): void {
+    const fallback = this.parsePositiveAmount(this.editDefaultBuyIn, 200);
+    if (index === 0) {
+      this.editPlayer0BuyIn = this.steppedAmount(this.editPlayer0BuyIn, delta, fallback);
+    } else if (index === 1) {
+      this.editPlayer1BuyIn = this.steppedAmount(this.editPlayer1BuyIn, delta, fallback);
+    } else if (index === 2) {
+      this.editPlayer2BuyIn = this.steppedAmount(this.editPlayer2BuyIn, delta, fallback);
+    } else if (index === 3) {
+      this.editPlayer3BuyIn = this.steppedAmount(this.editPlayer3BuyIn, delta, fallback);
+    }
+  }
+
   private roundTime(value: number): string {
     const date = new Date(value);
     const hour = `${date.getHours()}`.padStart(2, '0');
@@ -389,6 +451,7 @@ struct Index {
   }
 
   private cycleCashflowFilter(): void {
+    this.closeCashflowContextMenu();
     this.cashflowFilter = (this.cashflowFilter + 1) % 4;
   }
 
@@ -400,7 +463,7 @@ struct Index {
   }
 
   private visibleRoundListHeight(): number {
-    return this.visibleRounds().slice(0, 8).length * 58;
+    return this.cashflowRowsHeight(this.visibleRounds().slice(0, 8).length);
   }
 
   private activeRoundsFor(session: GameSession): RoundRecord[] {
@@ -410,12 +473,143 @@ struct Index {
   }
 
   private historyRoundListHeight(session: GameSession): number {
-    return this.activeRoundsFor(session).length * 58;
+    return this.cashflowRowsHeight(this.activeRoundsFor(session).length);
+  }
+
+  private cashflowRowsHeight(count: number): number {
+    return count * CASHFLOW_ROW_HEIGHT + Math.max(0, count - 1) * CASHFLOW_ROW_GAP;
   }
 
   private visibleRoundAt(index: number): RoundRecord | undefined {
     const records = this.visibleRounds();
     return records.length > index ? records[index] : undefined;
+  }
+
+  private activeCashflowContextRound(): RoundRecord | undefined {
+    return this.visibleRounds().find((round: RoundRecord) => round.id === this.cashflowContextRoundId);
+  }
+
+  private lengthToNumber(value: Length | undefined, fallback: number): number {
+    if (typeof value === 'number') {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const parsed = Number.parseFloat(value);
+      return Number.isNaN(parsed) ? fallback : parsed;
+    }
+    return fallback;
+  }
+
+  private updateRootArea(area: Area): void {
+    this.rootLeft = this.lengthToNumber(area.globalPosition.x, this.rootLeft);
+    this.rootTop = this.lengthToNumber(area.globalPosition.y, this.rootTop);
+    const nextHeight = this.lengthToNumber(area.height, this.rootHeight);
+    if (Math.abs(nextHeight - this.rootHeight) > 1) {
+      this.rootHeight = nextHeight;
+    }
+  }
+
+  private recordCashflowRowArea(roundId: string, area: Area): void {
+    const left = this.lengthToNumber(area.globalPosition.x, this.cashflowContextRowLeft + this.rootLeft) - this.rootLeft;
+    const top = this.lengthToNumber(area.globalPosition.y, this.cashflowContextRowTop + this.rootTop) - this.rootTop;
+    const width = this.lengthToNumber(area.width, this.cashflowContextRowWidth);
+    const height = this.lengthToNumber(area.height, CASHFLOW_ROW_HEIGHT);
+    this.cashflowRowAreas[roundId] = `${left}|${top}|${width}|${height}`;
+  }
+
+  private applyCashflowRowArea(roundId: string, fallbackTop: number): void {
+    const area = this.cashflowRowAreas[roundId];
+    if (!area) {
+      this.cashflowContextRowTop = Math.max(CASHFLOW_CONTEXT_EDGE_SPACE, fallbackTop - this.rootTop);
+      this.cashflowContextRowHeight = CASHFLOW_ROW_HEIGHT;
+      return;
+    }
+    const parts = area.split('|');
+    if (parts.length < 4) {
+      this.cashflowContextRowTop = Math.max(CASHFLOW_CONTEXT_EDGE_SPACE, fallbackTop - this.rootTop);
+      this.cashflowContextRowHeight = CASHFLOW_ROW_HEIGHT;
+      return;
+    }
+    this.cashflowContextRowLeft = Number.parseFloat(parts[0]);
+    this.cashflowContextRowTop = Number.parseFloat(parts[1]);
+    this.cashflowContextRowWidth = Number.parseFloat(parts[2]);
+    this.cashflowContextRowHeight = Number.parseFloat(parts[3]);
+  }
+
+  private openCashflowContextMenu(round: RoundRecord, event: GestureEvent): void {
+    if (!event.fingerList || event.fingerList.length === 0) {
+      return;
+    }
+    const finger = event.fingerList[0];
+    const token = ++this.cashflowContextMotionToken;
+    this.cashflowContextProgress = 0;
+    this.cashflowContextRoundId = round.id;
+    this.applyCashflowRowArea(round.id, finger.globalY - finger.localY);
+    this.pressedCardKey = '';
+    this.pressedControlKey = '';
+    setTimeout(() => {
+      if (this.cashflowContextMotionToken !== token || this.cashflowContextRoundId !== round.id) {
+        return;
+      }
+      this.getUIContext().animateTo({ duration: 220, curve: Curve.FastOutSlowIn }, () => {
+        this.cashflowContextProgress = 1;
+      });
+    }, 16);
+  }
+
+  private closeCashflowContextMenu(): void {
+    if (this.cashflowContextRoundId.length === 0) {
+      return;
+    }
+    const token = ++this.cashflowContextMotionToken;
+    const roundId = this.cashflowContextRoundId;
+    this.getUIContext().animateTo({ duration: 170, curve: Curve.FastOutLinearIn }, () => {
+      this.cashflowContextProgress = 0;
+    });
+    setTimeout(() => {
+      if (this.cashflowContextMotionToken !== token || this.cashflowContextRoundId !== roundId) {
+        return;
+      }
+      this.pressedControlKey = '';
+      this.cashflowContextRoundId = '';
+    }, 180);
+  }
+
+  private shouldShowCashflowContextMenuAbove(): boolean {
+    const menuBottom = this.cashflowContextRowTop + this.cashflowContextRowHeight + CASHFLOW_CONTEXT_MENU_GAP + CASHFLOW_CONTEXT_MENU_HEIGHT;
+    return menuBottom > this.rootHeight - CASHFLOW_CONTEXT_EDGE_SPACE;
+  }
+
+  private cashflowContextContentTop(): number {
+    if (this.shouldShowCashflowContextMenuAbove()) {
+      return Math.max(CASHFLOW_CONTEXT_EDGE_SPACE, this.cashflowContextRowTop - CASHFLOW_CONTEXT_MENU_GAP - CASHFLOW_CONTEXT_MENU_HEIGHT);
+    }
+    return this.cashflowContextRowTop;
+  }
+
+  private cashflowContextMenuWidth(): number {
+    return Math.min(CASHFLOW_CONTEXT_MENU_WIDTH, Math.max(148, this.cashflowContextRowWidth * 0.58));
+  }
+
+  private cashflowContextOverlayColor(): string {
+    const alpha = Math.round(64 * this.cashflowContextProgress)
+      .toString(16)
+      .padStart(2, '0')
+      .toUpperCase();
+    return `#${alpha}E8EDF2`;
+  }
+
+  private cashflowContextMenuOffsetY(): number {
+    const distance = (1 - this.cashflowContextProgress) * 16;
+    return this.shouldShowCashflowContextMenuAbove() ? distance : -distance;
+  }
+
+  private cashflowContextDeleteScale(roundId: string): ScaleOptions {
+    const pressScale = this.pressedControlKey === `cashflow-context-delete-${roundId}` ? 0.96 : 1;
+    return {
+      x: (0.92 + this.cashflowContextProgress * 0.08) * pressScale,
+      y: (0.62 + this.cashflowContextProgress * 0.38) * pressScale
+    };
   }
 
   private historyDetailSession(): GameSession | undefined {
@@ -938,6 +1132,20 @@ struct Index {
     return `${this.playerNameById(bestId)} 收分`;
   }
 
+  private roundModeText(round: RoundRecord): string {
+    if (this.isBuyInAdjustmentRound(round)) {
+      return '入场调整';
+    }
+    const category = this.roundCategory(round);
+    if (category === 2) {
+      return 'AA 开销';
+    }
+    if (category === 3) {
+      return '手动调整';
+    }
+    return '收分';
+  }
+
   private roundDetail(round: RoundRecord): string {
     const parts: string[] = [];
     const playerIds = this.playerIdsForRound(round);
@@ -972,6 +1180,38 @@ struct Index {
   private playerIdsForRound(round: RoundRecord): string[] {
     const session = this.sessions.find((item: GameSession) => item.id === round.sessionId);
     return session ? session.playerIds.slice(0, 4) : this.currentPlayerIds();
+  }
+
+  private roundPlayerIdAt(round: RoundRecord, index: number): string {
+    const playerIds = this.playerIdsForRound(round);
+    return playerIds.length > index ? playerIds[index] : '';
+  }
+
+  private roundPlayerNameAt(round: RoundRecord, index: number): string {
+    const playerId = this.roundPlayerIdAt(round, index);
+    return playerId.length > 0 ? this.playerNameById(playerId) : `牌友${index + 1}`;
+  }
+
+  private roundPlayerDeltaAt(round: RoundRecord, index: number): number {
+    const playerId = this.roundPlayerIdAt(round, index);
+    if (playerId.length === 0) {
+      return 0;
+    }
+    if (this.isBuyInAdjustmentRound(round)) {
+      return this.buyInAdjustmentAmount(round, playerId);
+    }
+    return Number(round.playerScores[playerId] ?? 0);
+  }
+
+  private roundPlayerDeltaColorAt(round: RoundRecord, index: number): string {
+    const amount = this.roundPlayerDeltaAt(round, index);
+    if (amount > 0) {
+      return GREEN;
+    }
+    if (amount < 0) {
+      return RED;
+    }
+    return TEXT_SECOND;
   }
 
   private entryPlayerFieldText(playerId: string): string {
@@ -1078,12 +1318,12 @@ struct Index {
 
   private hasBackDetailPage(): boolean {
     return this.showCreatePage || this.showHistoryDetail || this.showSettlement || this.showSettlementComplete
-      || this.friendSearchActive;
+      || this.friendSearchVisible;
   }
 
   private hasDetailScreen(): boolean {
     return this.showCreatePage || this.showHistoryDetail || this.showSettlement || this.showSettlementComplete
-      || this.friendSearchActive;
+      || this.friendSearchVisible;
   }
 
   private navigateBackFromDetail(): void {
@@ -1095,7 +1335,7 @@ struct Index {
       this.closeSettlementPage();
     } else if (this.showSettlementComplete) {
       this.returnFromSettlementComplete();
-    } else if (this.friendSearchActive) {
+    } else if (this.friendSearchVisible) {
       this.closeFriendSearch();
     }
   }
@@ -1117,7 +1357,7 @@ struct Index {
   }
 
   private handleFriendPagePanEnd(event: GestureEvent): void {
-    if (this.friendSearchActive) {
+    if (this.friendSearchVisible) {
       if (event.offsetX >= 72 && Math.abs(event.offsetY) <= 80) {
         this.closeFriendSearch();
       }
@@ -1187,7 +1427,12 @@ struct Index {
   }
 
   private openFriendSearch(): void {
+    if (this.friendSearchVisible) {
+      return;
+    }
+    this.friendSearchClosing = false;
     this.friendSearchBaseSearchHidden = true;
+    this.friendSearchVisible = true;
     this.friendSearchMotionReady = false;
     this.getUIContext().animateTo({ duration: 220, curve: Curve.FastOutSlowIn }, () => {
       this.friendSearchActive = true;
@@ -1203,78 +1448,84 @@ struct Index {
   }
 
   private closeFriendSearch(): void {
+    if (!this.friendSearchVisible) {
+      return;
+    }
+    this.friendSearchClosing = true;
+    this.friendSearchQuery = '';
     this.getUIContext().animateTo({ duration: 280, curve: Curve.FastOutSlowIn }, () => {
       this.friendSearchMotionReady = false;
     });
     setTimeout(() => {
-      this.getUIContext().animateTo({ duration: 1, curve: Curve.Linear }, () => {
+      this.getUIContext().animateTo({ duration: 120, curve: Curve.FastOutSlowIn }, () => {
+        this.friendSearchVisible = false;
         this.friendSearchActive = false;
         this.friendSearchQuery = '';
-      });
-      setTimeout(() => {
         this.friendSearchBaseSearchHidden = false;
-      }, 40);
+        this.friendSearchMotionReady = false;
+        this.friendSearchClosing = false;
+      });
     }, 280);
   }
 
   private friendSearchOpenBarOpacity(): number {
-    return this.friendSearchActive || this.friendSearchBaseSearchHidden ? 0 : 1;
+    return this.friendSearchVisible || this.friendSearchBaseSearchHidden ? 0 : 1;
   }
 
   private friendSearchBarOffsetY(): number {
-    if (!this.friendSearchActive) {
-      return 0;
+    if (!this.friendSearchVisible) {
+      return 62;
     }
-    return this.friendSearchMotionReady ? -6 : 52;
+    return this.friendSearchMotionReady ? -6 : 62;
   }
 
   private friendSearchContentOffsetY(): number {
-    if (!this.friendSearchActive) {
-      return 12;
+    if (!this.friendSearchVisible) {
+      return 18;
     }
     return this.friendSearchMotionReady ? 0 : 18;
   }
 
   private friendSearchContentOpacity(): number {
-    if (!this.friendSearchActive) {
+    if (!this.friendSearchVisible) {
       return 0;
     }
     return this.friendSearchMotionReady ? 1 : 0;
   }
 
   private friendSearchCancelOpacity(): number {
-    if (!this.friendSearchActive) {
+    if (!this.friendSearchVisible) {
       return 0;
     }
     return this.friendSearchMotionReady ? 1 : 0;
   }
 
   private friendSearchExpandedChrome(): boolean {
-    return this.friendSearchActive && this.friendSearchMotionReady;
+    return this.friendSearchVisible && this.friendSearchMotionReady;
   }
 
   private friendSearchHeaderGap(): number {
-    return this.friendSearchExpandedChrome() ? 12 : 0;
+    return 0;
   }
 
   private friendSearchCancelWidth(): number {
-    return this.friendSearchExpandedChrome() ? 44 : 0;
+    return this.friendSearchMotionReady ? 42 : 0;
   }
 
   private friendSearchBarHeight(): number {
-    return this.friendSearchExpandedChrome() ? 48 : 44;
+    return FRIEND_SEARCH_BAR_HEIGHT;
   }
 
   private friendSearchBarRadius(): number {
-    return this.friendSearchExpandedChrome() ? 24 : 22;
+    return FRIEND_SEARCH_BAR_RADIUS;
   }
 
   private friendSearchBarPaddingRight(): number {
-    return this.friendSearchExpandedChrome() ? 10 : 14;
+    return FRIEND_SEARCH_BAR_HORIZONTAL_PADDING;
   }
 
   private friendSearchBarScale(): ScaleOptions {
-    if (!this.friendSearchActive) {
+    if (!this.friendSearchVisible) {
       return this.pressableControlScale('friends-search-open');
     }
     if (this.friendSearchMotionReady) {
@@ -1284,24 +1535,35 @@ struct Index {
   }
 
   private friendSearchOverlayOpacity(): number {
-    if (!this.friendSearchActive) {
+    if (!this.friendSearchVisible) {
       return 0;
     }
-    return this.friendSearchMotionReady ? 1 : 0.98;
+    return 1;
   }
 
   private friendSearchOverlayOffsetY(): number {
-    if (!this.friendSearchActive) {
-      return 12;
+    if (!this.friendSearchVisible) {
+      return 0;
     }
     return this.friendSearchMotionReady ? 0 : 0;
   }
 
-  private friendSearchPageBg(): string {
-    if (!this.friendSearchActive || this.friendSearchMotionReady) {
-      return PAGE_BG;
+  private friendSearchReturnOpacity(): number {
+    if (!this.friendSearchVisible || !this.friendSearchClosing) {
+      return 0;
     }
-    return '#20F1F3F5';
+    return this.friendSearchMotionReady ? 0 : 1;
+  }
+
+  private friendSearchReturnOffsetY(): number {
+    if (!this.friendSearchVisible || !this.friendSearchClosing) {
+      return 8;
+    }
+    return this.friendSearchMotionReady ? 8 : 0;
+  }
+
+  private friendSearchPageBg(): string {
+    return PAGE_BG;
   }
 
   private friendSearchText(): string {
@@ -1401,6 +1663,12 @@ struct Index {
     this.showSettlementComplete = false;
     this.showHistoryDetail = false;
     this.friendSearchActive = false;
+    this.friendSearchVisible = false;
+    this.friendSearchMotionReady = false;
+    this.friendSearchBaseSearchHidden = false;
+    this.cashflowContextMotionToken += 1;
+    this.cashflowContextProgress = 0;
+    this.cashflowContextRoundId = '';
     this.pressedNavIndex = -1;
     this.getUIContext().animateTo({ duration: 180, curve: Curve.FastOutSlowIn }, () => {
       this.currentTab = index;
@@ -1590,9 +1858,9 @@ struct Index {
     const defaultTitle = this.sessions.length > 0 ? '今天的牌局' : '今晚南山局';
     this.newSessionTitle = this.newSessionTitle.trim().length > 0 ? this.newSessionTitle : defaultTitle;
     this.newPlayer0Name = ledgerRepository.currentUser().displayName;
-    this.newPlayer1Name = '';
-    this.newPlayer2Name = '';
-    this.newPlayer3Name = '';
+    this.newPlayer1Name = '牌友1';
+    this.newPlayer2Name = '牌友2';
+    this.newPlayer3Name = '牌友3';
     this.newDefaultBuyIn = '200';
     this.newPlayer0BuyIn = this.newDefaultBuyIn;
     this.newPlayer1BuyIn = this.newDefaultBuyIn;
@@ -1612,6 +1880,7 @@ struct Index {
     this.editPlayer1Name = this.sessionPlayerName(1);
     this.editPlayer2Name = this.sessionPlayerName(2);
     this.editPlayer3Name = this.sessionPlayerName(3);
+    this.editDefaultBuyIn = `${Number(session.defaultBuyIn ?? this.buyInAt(0))}`;
     this.editPlayer0BuyIn = `${this.buyInAt(0)}`;
     this.editPlayer1BuyIn = `${this.buyInAt(1)}`;
     this.editPlayer2BuyIn = `${this.buyInAt(2)}`;
@@ -1723,7 +1992,7 @@ struct Index {
     }
     const basePoint = this.parsePositiveAmount(this.basePoint, 10);
     const buyIns = this.buildBuyIns(amountDrafts, playerIds);
-    const session = ledgerRepository.createSession(this.selectedGroupId, title, basePoint, '离线隐私模式', playerIds, buyIns);
+    const session = ledgerRepository.createSession(this.selectedGroupId, title, basePoint, '离线隐私模式', playerIds, buyIns, this.parsePositiveAmount(this.newDefaultBuyIn, 200));
     this.selectedSessionId = session.id;
     this.refresh();
     this.showCreatePage = false;
@@ -1742,7 +2011,7 @@ struct Index {
     const previousBuyIns = this.cloneBuyIns(session.buyIns, playerIds);
     const buyIns = this.buildBuyIns([this.editPlayer0BuyIn, this.editPlayer1BuyIn, this.editPlayer2BuyIn, this.editPlayer3BuyIn], playerIds);
     const changeNote = this.buyInChangeNote(playerIds, previousBuyIns, buyIns);
-    const updatedSession = ledgerRepository.updateSession(this.selectedGroupId, session.id, title, this.parsePositiveAmount(this.editBasePoint, session.basePoint), this.editNote, playerIds, buyIns);
+    const updatedSession = ledgerRepository.updateSession(this.selectedGroupId, session.id, title, this.parsePositiveAmount(this.editBasePoint, session.basePoint), this.editNote, playerIds, buyIns, this.parsePositiveAmount(this.editDefaultBuyIn, Number(session.defaultBuyIn ?? 200)));
     if (changeNote.length > 0) {
       ledgerRepository.addRound(this.selectedGroupId, updatedSession.id, this.zeroScores(playerIds), changeNote);
     }
@@ -1788,6 +2057,7 @@ struct Index {
       ledgerRepository.updateSession(this.selectedGroupId, session.id, session.title, session.basePoint, session.note, session.playerIds.slice(), buyIns);
     }
     ledgerRepository.voidRound(this.selectedGroupId, round.id);
+    this.closeCashflowContextMenu();
     this.refresh();
     promptAction.showToast({ message: '流水已撤回' });
   }
@@ -1962,9 +2232,14 @@ struct Index {
     this.showCreatePage = false;
     this.showSettlementComplete = false;
     this.showHistoryDetail = false;
-    this.currentTab = 0;
     this.refresh();
     promptAction.showToast({ message: '本地数据已清空' });
+  }
+
+  private cancelClearDataConfirmation(): void {
+    if (this.confirmClearData) {
+      this.confirmClearData = false;
+    }
   }
 
   build() {
@@ -1982,16 +2257,21 @@ struct Index {
       .position({ x: 0, y: 0 })
       .animation({ duration: 260, curve: Curve.FastOutSlowIn })
 
-      if (!this.hasDetailScreen() && !this.friendSearchActive) {
+      if (!this.hasDetailScreen() && !this.friendSearchVisible) {
         this.GlassNav()
+      }
+
+      if (this.cashflowContextRoundId.length > 0) {
+        this.CashflowContextOverlay()
       }
     }
     .width('100%')
     .height('100%')
     .backgroundColor(PAGE_BG)
+    .onAreaChange((oldValue: Area, newValue: Area) => this.updateRootArea(newValue))
     .bindSheet(this.activeSheet > 0, this.ActiveSheet(), {
-      height: this.activeSheet === 3 ? SheetSize.MEDIUM : SheetSize.FIT_CONTENT,
-      detents: this.activeSheet === 3 ? [SheetSize.MEDIUM, SheetSize.LARGE] : [SheetSize.FIT_CONTENT],
+      height: this.activeSheet === 2 ? SheetSize.LARGE : (this.activeSheet === 3 ? SheetSize.MEDIUM : SheetSize.FIT_CONTENT),
+      detents: this.activeSheet === 2 ? [SheetSize.LARGE] : (this.activeSheet === 3 ? [SheetSize.MEDIUM, SheetSize.LARGE] : [SheetSize.FIT_CONTENT]),
       blurStyle: BlurStyle.COMPONENT_ULTRA_THICK,
       backgroundColor: '#F8FFFFFF',
       maskColor: '#991F2329',
@@ -2012,6 +2292,84 @@ struct Index {
   }
 
   @Builder
+  private CashflowContextOverlay() {
+    if (this.activeCashflowContextRound()) {
+      Stack({ alignContent: Alignment.TopStart }) {
+        Column()
+          .width('100%')
+          .height('100%')
+          .backdropBlur(72 * this.cashflowContextProgress)
+          .backgroundColor(this.cashflowContextOverlayColor())
+          .animation({ duration: 220, curve: Curve.FastOutSlowIn })
+          .onClick(() => this.closeCashflowContextMenu())
+
+        Column({ space: CASHFLOW_CONTEXT_MENU_GAP }) {
+          if (this.shouldShowCashflowContextMenuAbove()) {
+            this.CashflowContextMenu(this.activeCashflowContextRound() as RoundRecord)
+            this.CashflowContextRow(this.activeCashflowContextRound() as RoundRecord)
+          } else {
+            this.CashflowContextRow(this.activeCashflowContextRound() as RoundRecord)
+            this.CashflowContextMenu(this.activeCashflowContextRound() as RoundRecord)
+          }
+        }
+        .width(this.cashflowContextRowWidth)
+        .position({ x: this.cashflowContextRowLeft, y: this.cashflowContextContentTop() })
+        .opacity(0.96 + this.cashflowContextProgress * 0.04)
+        .animation({ duration: 220, curve: Curve.FastOutSlowIn })
+      }
+      .width('100%')
+      .height('100%')
+      .transition(TransitionEffect.OPACITY.animation({ duration: 180, curve: Curve.FastOutSlowIn }))
+    }
+  }
+
+  @Builder
+  private CashflowContextRow(round: RoundRecord) {
+    Column() {
+      this.CashflowRecordRow(round)
+    }
+    .width('100%')
+    .height(this.cashflowContextRowHeight)
+    .borderRadius(CASHFLOW_ROW_RADIUS)
+    .backgroundColor(CARD_BG)
+    .shadow({ radius: 40, color: '#30000000', offsetY: 18, type: ShadowType.COLOR })
+  }
+
+  @Builder
+  private CashflowContextMenu(round: RoundRecord) {
+    Row() {
+      Row({ space: 8 }) {
+        SymbolGlyph($r('sys.symbol.trash'))
+          .fontSize(20)
+          .fontWeight(FontWeight.Bold)
+          .fontColor([RED])
+        Text('删除')
+          .fontSize(17)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(RED)
+      }
+      .width(this.cashflowContextMenuWidth())
+      .height(CASHFLOW_CONTEXT_MENU_HEIGHT)
+      .padding({ left: 24, right: 24 })
+      .justifyContent(FlexAlign.Start)
+      .alignItems(VerticalAlign.Center)
+      .borderRadius(24)
+      .backgroundColor(CARD_BG)
+      .shadow({ radius: 30, color: '#28000000', offsetY: 12, type: ShadowType.COLOR })
+      .opacity(this.cashflowContextProgress)
+      .translate({ y: this.cashflowContextMenuOffsetY() })
+      .scale(this.cashflowContextDeleteScale(round.id))
+      .animation({ duration: 220, curve: Curve.FastOutSlowIn })
+      .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, `cashflow-context-delete-${round.id}`))
+      .onClick(() => this.voidRound(round))
+    }
+    .width('100%')
+    .height(CASHFLOW_CONTEXT_MENU_HEIGHT)
+    .justifyContent(FlexAlign.End)
+    .alignItems(VerticalAlign.Center)
+  }
+
+  @Builder
   private Screen() {
     Stack({ alignContent: Alignment.TopStart }) {
       this.MainTabSwiper()
@@ -2021,38 +2379,45 @@ struct Index {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(this.friendSearchActive ? this.friendSearchPageBg() : PAGE_BG)
+    .backgroundColor(this.friendSearchVisible ? this.friendSearchPageBg() : PAGE_BG)
   }
 
   @Builder
   private DetailScreen() {
-    Scroll() {
-      Column({ space: 18 }) {
-        if (this.showSettlement) {
-          this.SettlementPage()
-        } else if (this.showSettlementComplete) {
-          this.SettlementCompletePage()
-        } else if (this.showCreatePage) {
-          this.CreateGamePage()
-        } else if (this.showHistoryDetail) {
-          this.HistoryDetailPage()
-        } else if (this.friendSearchActive) {
-          this.FriendSearchPage()
+    Stack({ alignContent: Alignment.TopStart }) {
+      if (this.showCreatePage) {
+        this.CreateGamePage()
+      } else if (this.showSettlement) {
+        this.SettlementPage()
+      } else {
+        Scroll() {
+          Column({ space: 18 }) {
+            if (this.showSettlementComplete) {
+              this.SettlementCompletePage()
+            } else if (this.showHistoryDetail) {
+              this.HistoryDetailPage()
+            } else if (this.friendSearchVisible) {
+              this.FriendSearchPage()
+            }
+          }
+          .padding({ left: 20, right: 20, top: this.friendSearchVisible ? 14 : 26, bottom: 30 })
+          .width('100%')
+          .constraintSize({ minHeight: '100%' })
+          .justifyContent(FlexAlign.Start)
+          .alignItems(HorizontalAlign.Start)
         }
+        .width('100%')
+        .height('100%')
+        .align(Alignment.TopStart)
+        .scrollBar(BarState.Off)
+        .edgeEffect(EdgeEffect.Spring)
       }
-      .padding({ left: 20, right: 20, top: this.friendSearchActive ? 14 : 26, bottom: 30 })
-      .width('100%')
-      .constraintSize({ minHeight: '100%' })
-      .justifyContent(FlexAlign.Start)
-      .alignItems(HorizontalAlign.Start)
     }
     .width('100%')
     .height('100%')
     .align(Alignment.TopStart)
     .backgroundColor(PAGE_BG)
-    .scrollBar(BarState.Off)
-    .edgeEffect(EdgeEffect.Spring)
-    .transition(this.friendSearchActive
+    .transition(this.friendSearchVisible
       ? TransitionEffect.OPACITY.animation({ duration: 220, curve: Curve.FastOutSlowIn })
       : TransitionEffect.asymmetric(
         TransitionEffect.move(TransitionEdge.END).animation({ duration: 220, curve: Curve.FastOutSlowIn }),
@@ -2075,7 +2440,7 @@ struct Index {
     }
     .indicator(false)
     .loop(false)
-    .disableSwipe(this.currentTab === 2 && this.friendSearchActive)
+    .disableSwipe(this.currentTab === 2 && this.friendSearchVisible)
     .cachedCount(3)
     .duration(300)
     .curve(Curve.FastOutSlowIn)
@@ -2093,11 +2458,10 @@ struct Index {
 
   @Builder
   private MainTabPage(index: number) {
-    Scroll() {
-      Column({ space: 18 }) {
-        if (index !== 2) {
-          this.PageHeaderFor(index)
-        }
+    Column() {
+      this.PageHeaderFor(index)
+      Scroll() {
+        Column({ space: 18 }) {
         if (index === 0) {
           this.GamePage()
         } else if (index === 1) {
@@ -2108,17 +2472,23 @@ struct Index {
           this.MinePage()
         }
       }
-      .padding({ left: 20, right: 20, top: 26, bottom: 118 })
+      .padding({ left: 20, right: 20, top: 18, bottom: 118 })
       .width('100%')
       .constraintSize({ minHeight: '100%' })
       .justifyContent(FlexAlign.Start)
       .alignItems(HorizontalAlign.Start)
     }
+      .layoutWeight(1)
+      .width('100%')
+      .align(Alignment.TopStart)
+      .scrollBar(BarState.Off)
+      .edgeEffect(EdgeEffect.Spring)
+    }
     .width('100%')
     .height('100%')
-    .align(Alignment.TopStart)
-    .scrollBar(BarState.Off)
-    .edgeEffect(EdgeEffect.Spring)
+    .padding({ top: 26 })
+    .justifyContent(FlexAlign.Start)
+    .alignItems(HorizontalAlign.Start)
   }
 
   @Builder
@@ -2140,6 +2510,8 @@ struct Index {
 
     }
     .width('100%')
+    .height(34)
+    .padding({ left: 20, right: 20 })
     .alignItems(VerticalAlign.Center)
   }
 
@@ -2182,7 +2554,7 @@ struct Index {
 
   @Builder
   private CreateGamePage() {
-    Column({ space: 16 }) {
+    Column() {
       Row({ space: 10 }) {
         this.BackButton(() => this.closeCreatePage())
         Text('新建牌局')
@@ -2191,69 +2563,85 @@ struct Index {
           .fontColor(TEXT_MAIN)
       }
       .width('100%')
+      .padding({ left: 20, right: 20, top: 26, bottom: 16 })
 
-      Column({ space: 6 }) {
-        Text('先把这场局搭起来')
-          .fontSize(18)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(TEXT_MAIN)
-        Text('填写牌局名称、四位牌友和入场金额后，就可以开始记账。')
-          .fontSize(13)
-          .fontColor(TEXT_SECOND)
-          .lineHeight(20)
-      }
-      .alignItems(HorizontalAlign.Start)
-      .width('100%')
-      .padding(18)
-      .borderRadius(22)
-      .backgroundColor(CARD_BG)
-      .scale(this.pressableCardScale('create-guide-card'))
-      .shadow({ radius: this.pressableCardShadowRadius('create-guide-card'), color: '#10000000', offsetY: this.pressableCardShadowOffsetY('create-guide-card') })
-      .animation({ duration: 150, curve: Curve.FastOutSlowIn })
-      .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'create-guide-card'))
+      Scroll() {
+        Column({ space: 16 }) {
+          Column({ space: 6 }) {
+            Text('先把这场局搭起来')
+              .fontSize(18)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(TEXT_MAIN)
+            Text('填写牌局名称、四位牌友和入场金额后，就可以开始记账。')
+              .fontSize(13)
+              .fontColor(TEXT_SECOND)
+              .lineHeight(20)
+          }
+          .alignItems(HorizontalAlign.Start)
+          .width('100%')
+          .padding(18)
+          .borderRadius(22)
+          .backgroundColor(CARD_BG)
+          .scale(this.pressableCardScale('create-guide-card'))
+          .shadow({ radius: this.pressableCardShadowRadius('create-guide-card'), color: '#10000000', offsetY: this.pressableCardShadowOffsetY('create-guide-card') })
+          .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+          .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'create-guide-card'))
 
-      Column({ space: 12 }) {
-        this.SectionTitle('牌局信息', '')
-        this.VerticalTextField('牌局名称', this.newSessionTitle, '今天的牌局', (value: string) => this.newSessionTitle = value)
-        this.CreateDefaultBuyInField()
-      }
-      .padding(16)
-      .borderRadius(22)
-      .backgroundColor(CARD_BG)
-      .shadow({ radius: 18, color: '#10000000', offsetY: 8 })
+          Column({ space: 12 }) {
+            this.SectionTitle('牌局信息', '')
+            this.VerticalTextField('牌局名称', this.newSessionTitle, '今天的牌局', (value: string) => this.newSessionTitle = value)
+            this.CreateDefaultBuyInField()
+          }
+          .padding(16)
+          .borderRadius(22)
+          .backgroundColor(CARD_BG)
+          .shadow({ radius: 18, color: '#10000000', offsetY: 8 })
 
-      Column({ space: 10 }) {
-        this.SectionTitle('牌友和入场金额', '4 人')
-        this.CreateFixedPlayerRow('牌友1', this.newPlayer0Name)
-        this.CreatePlayer0BuyInStepper()
-        this.CreatePlayerInputRow('牌友2', this.newPlayer1Name, (value: string) => this.newPlayer1Name = value, () => this.openFriendPicker(1))
-        this.CreatePlayer1BuyInStepper()
-        this.CreatePlayerInputRow('牌友3', this.newPlayer2Name, (value: string) => this.newPlayer2Name = value, () => this.openFriendPicker(2))
-        this.CreatePlayer2BuyInStepper()
-        this.CreatePlayerInputRow('牌友4', this.newPlayer3Name, (value: string) => this.newPlayer3Name = value, () => this.openFriendPicker(3))
-        this.CreatePlayer3BuyInStepper()
-      }
-      .padding(16)
-      .borderRadius(22)
-      .backgroundColor(CARD_BG)
-      .shadow({ radius: 18, color: '#10000000', offsetY: 8 })
-
-      Button('开始记账')
-        .height(50)
+          Column({ space: 10 }) {
+            this.SectionTitle('牌友和入场金额', '4 人')
+            this.CreateFixedPlayerRow('牌友1', this.newPlayer0Name)
+            this.CreatePlayer0BuyInStepper()
+            this.CreatePlayerInputRow('牌友2', this.newPlayer1Name, (value: string) => this.newPlayer1Name = value, () => this.openFriendPicker(1))
+            this.CreatePlayer1BuyInStepper()
+            this.CreatePlayerInputRow('牌友3', this.newPlayer2Name, (value: string) => this.newPlayer2Name = value, () => this.openFriendPicker(2))
+            this.CreatePlayer2BuyInStepper()
+            this.CreatePlayerInputRow('牌友4', this.newPlayer3Name, (value: string) => this.newPlayer3Name = value, () => this.openFriendPicker(3))
+            this.CreatePlayer3BuyInStepper()
+          }
+          .padding(16)
+          .borderRadius(22)
+          .backgroundColor(CARD_BG)
+          .shadow({ radius: 18, color: '#10000000', offsetY: 8 })
+        }
         .width('100%')
-        .borderRadius(16)
-        .fontSize(16)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#FFFFFF')
-        .backgroundColor(BLUE)
-        .shadow({ radius: 16, color: '#522F63F4', offsetY: 8 })
-        .stateEffect(true)
-        .scale(this.pressableControlScale('create-page-start'))
-        .animation({ duration: 150, curve: Curve.FastOutSlowIn })
-        .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, 'create-page-start'))
-        .onClick(() => this.startNewSession())
+        .padding({ left: 20, right: 20, top: 8, bottom: 18 })
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .scrollBar(BarState.Off)
+      .edgeEffect(EdgeEffect.Spring)
+
+      Column() {
+        Button('开始记账')
+          .height(50)
+          .width('100%')
+          .borderRadius(16)
+          .fontSize(16)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#FFFFFF')
+          .backgroundColor(BLUE)
+          .shadow({ radius: 16, color: '#522F63F4', offsetY: 8 })
+          .stateEffect(true)
+          .scale(this.pressableControlScale('create-page-start'))
+          .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+          .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, 'create-page-start'))
+          .onClick(() => this.startNewSession())
+      }
+      .width('100%')
+      .padding({ left: 20, right: 20, top: 14, bottom: 30 })
     }
     .width('100%')
+    .height('100%')
   }
 
   @Builder
@@ -2400,13 +2788,25 @@ struct Index {
   @Builder
   private GameSetupCard() {
     Column({ space: 12 }) {
-      this.SectionTitle('参与人和入场金额', '')
-      Row({ space: 8 }) {
-        this.PlayerChip(this.sessionPlayerName(0), `${this.buyInAt(0)}`)
-        this.PlayerChip(this.sessionPlayerName(1), `${this.buyInAt(1)}`)
-        this.PlayerChip(this.sessionPlayerName(2), `${this.buyInAt(2)}`)
-        this.PlayerChip(this.sessionPlayerName(3), `${this.buyInAt(3)}`)
+      this.SectionTitle('参与人和入场金额', `${this.sessionPlayerCount()} 人`)
+      Grid() {
+        GridItem() { this.PlayerChip(this.sessionPlayerName(0), this.buyInAt(0)) }
+        GridItem() { this.PlayerChip(this.sessionPlayerName(1), this.buyInAt(1)) }
+        GridItem() { this.PlayerChip(this.sessionPlayerName(2), this.buyInAt(2)) }
+        GridItem() { this.PlayerChip(this.sessionPlayerName(3), this.buyInAt(3)) }
       }
+      .columnsTemplate('1fr 1fr')
+      .rowsGap(8)
+      .columnsGap(8)
+      .width('100%')
+      .height(136)
+
+      Row({ space: 8 }) {
+        this.GameSetupMetric('默认入场', `${this.currentDefaultBuyIn()}`)
+        this.GameSetupMetric('总入场', `${this.totalBuyIn()}`)
+      }
+      .width('100%')
+
       Row({ space: 10 }) {
         Button('编辑')
           .height(34)
@@ -2445,25 +2845,66 @@ struct Index {
   }
 
   @Builder
-  private PlayerChip(name: string, buyIn: string) {
-    Column({ space: 2 }) {
-      Text(name)
-        .fontSize(14)
+  private PlayerChip(name: string, buyIn: number) {
+    Column({ space: 8 }) {
+      Row() {
+        Text(name)
+          .fontSize(15)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(TEXT_MAIN)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .layoutWeight(1)
+        Text('入场')
+          .fontSize(11)
+          .fontColor(TEXT_SECOND)
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+      Row() {
+        Text(`${buyIn}`)
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(TEXT_MAIN)
+          .maxLines(1)
+        Text('分')
+          .fontSize(11)
+          .fontColor(TEXT_SECOND)
+          .margin({ left: 4, top: 3 })
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+    }
+      .height(64)
+      .width('100%')
+      .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+      .justifyContent(FlexAlign.Center)
+      .alignItems(HorizontalAlign.Start)
+      .borderRadius(18)
+      .backgroundColor('#F7F8FB')
+      .border({ width: 1, color: '#EEF1F6' })
+  }
+
+  @Builder
+  private GameSetupMetric(label: string, value: string) {
+    Row() {
+      Text(label)
+        .fontSize(12)
+        .fontColor(TEXT_SECOND)
+        .layoutWeight(1)
+      Text(value)
+        .fontSize(15)
         .fontWeight(FontWeight.Bold)
         .fontColor(TEXT_MAIN)
         .maxLines(1)
-      Text(buyIn)
-        .fontSize(11)
-        .fontColor(TEXT_SECOND)
-        .maxLines(1)
     }
-      .height(46)
+      .height(34)
       .layoutWeight(1)
-      .justifyContent(FlexAlign.Center)
-      .alignItems(HorizontalAlign.Center)
-      .borderRadius(23)
+      .padding({ left: 14, right: 14 })
+      .alignItems(VerticalAlign.Center)
+      .borderRadius(17)
       .backgroundColor('#F8F6F2')
-      .border({ width: 1, color: LINE })
+      .border({ width: 1, color: '#EFECE7' })
   }
 
   @Builder
@@ -2763,7 +3204,7 @@ struct Index {
           .fontSize(13)
           .fontColor(TEXT_SECOND)
       } else {
-        List() {
+        List({ space: CASHFLOW_ROW_GAP }) {
           ForEach(this.visibleRounds().slice(0, 8), (round: RoundRecord) => {
             this.CashflowRecordListItem(round, true)
           }, (round: RoundRecord) => round.id)
@@ -2785,7 +3226,66 @@ struct Index {
 
   @Builder
   private CashflowRecordRow(round: RoundRecord) {
-    this.CashflowRow(this.roundTitle(round), this.roundDetail(round), formatMoney(this.roundDisplayAmount(round)), this.roundDisplayAmount(round) >= 0)
+    Column({ space: 8 }) {
+      Row() {
+        Text(this.roundModeText(round))
+          .fontSize(15)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(TEXT_MAIN)
+        Text(this.roundTime(round.createdAt))
+          .fontSize(12)
+          .fontColor(TEXT_SECOND)
+          .textAlign(TextAlign.End)
+          .layoutWeight(1)
+      }
+      .width('100%')
+      .height(20)
+      .alignItems(VerticalAlign.Center)
+
+      Column({ space: 6 }) {
+        Row({ space: 6 }) {
+          this.CashflowPlayerDelta(round, 0)
+          this.CashflowPlayerDelta(round, 1)
+        }
+        .width('100%')
+        .height(26)
+
+        Row({ space: 6 }) {
+          this.CashflowPlayerDelta(round, 2)
+          this.CashflowPlayerDelta(round, 3)
+        }
+        .width('100%')
+        .height(26)
+      }
+      .width('100%')
+    }
+    .width('100%')
+    .height(CASHFLOW_ROW_HEIGHT)
+    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+    .borderRadius(CASHFLOW_ROW_RADIUS)
+    .backgroundColor(CARD_BG)
+  }
+
+  @Builder
+  private CashflowPlayerDelta(round: RoundRecord, index: number) {
+    Row({ space: 4 }) {
+      Text(this.roundPlayerNameAt(round, index))
+        .fontSize(12)
+        .fontColor(TEXT_SECOND)
+        .maxLines(1)
+        .layoutWeight(1)
+      Text(formatMoney(this.roundPlayerDeltaAt(round, index)))
+        .fontSize(13)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(this.roundPlayerDeltaColorAt(round, index))
+        .textAlign(TextAlign.End)
+    }
+    .layoutWeight(1)
+    .height(26)
+    .padding({ left: 8, right: 8 })
+    .borderRadius(10)
+    .backgroundColor('#F7F8FB')
+    .alignItems(VerticalAlign.Center)
   }
 
   @Builder
@@ -2794,16 +3294,12 @@ struct Index {
       ListItem() {
         this.CashflowRecordRow(round)
       }
+      .onAreaChange((oldValue: Area, newValue: Area) => this.recordCashflowRowArea(round.id, newValue))
       .transition({ type: TransitionType.Delete, opacity: 0 })
-      .swipeAction({
-        end: {
-          builder: () => {
-            this.DeleteRoundSwipeAction(round)
-          },
-          actionAreaDistance: 72
-        },
-        edgeEffect: SwipeEdgeEffect.Spring
-      })
+      .gesture(
+        LongPressGesture({ duration: 420, repeat: false })
+          .onAction((event: GestureEvent) => this.openCashflowContextMenu(round, event))
+      )
     } else {
       ListItem() {
         this.CashflowRecordRow(round)
@@ -2904,41 +3400,6 @@ struct Index {
   }
 
   @Builder
-  private DeleteRoundSwipeAction(round: RoundRecord) {
-    Row() {
-      Button() {
-        Column({ space: 2 }) {
-          Row()
-            .width(16)
-            .height(3)
-            .borderRadius(2)
-            .backgroundColor('#FFFFFF')
-          Row()
-            .width(20)
-            .height(18)
-            .border({ width: 2, color: '#FFFFFF' })
-            .borderRadius(4)
-        }
-        .alignItems(HorizontalAlign.Center)
-        .justifyContent(FlexAlign.Center)
-      }
-      .width(44)
-      .height(44)
-      .borderRadius(22)
-      .backgroundColor(RED)
-      .stateEffect(true)
-      .scale(this.pressableControlScale(`delete-round-${round.id}`))
-      .animation({ duration: 150, curve: Curve.FastOutSlowIn })
-      .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, `delete-round-${round.id}`))
-      .onClick(() => this.voidRound(round))
-    }
-    .width(72)
-    .height(58)
-    .justifyContent(FlexAlign.Center)
-    .backgroundColor('#FFF0EE')
-  }
-
-  @Builder
   private CashflowRow(title: string, desc: string, amount: string, positive: boolean) {
     Row() {
       Column({ space: 5 }) {
@@ -2957,13 +3418,16 @@ struct Index {
         .fontWeight(FontWeight.Bold)
         .fontColor(positive ? GREEN : RED)
     }
-    .height(58)
-    .border({ width: { bottom: 1 }, color: LINE })
+    .width('100%')
+    .height(64)
+    .padding({ left: 14, right: 14 })
+    .borderRadius(CASHFLOW_ROW_RADIUS)
+    .backgroundColor(CARD_BG)
   }
 
   @Builder
   private SettlementPage() {
-    Column({ space: 16 }) {
+    Column() {
       Row({ space: 10 }) {
         this.BackButton(() => this.closeSettlementPage())
         Text(this.currentSessionTitle())
@@ -2972,23 +3436,28 @@ struct Index {
           .fontColor(TEXT_MAIN)
       }
       .width('100%')
+      .height(50)
+      .padding({ left: 20, right: 20 })
+      .alignItems(VerticalAlign.Center)
 
-      Column({ space: 8 }) {
-        Text('大赢家')
-          .fontSize(13)
-          .fontColor(TEXT_SECOND)
-        Text(this.currentWinnerName())
-          .fontSize(25)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(TEXT_MAIN)
-        Text(formatMoney(this.currentWinnerScore()))
-          .fontSize(28)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(this.currentWinnerScore() >= 0 ? GREEN : RED)
-        Text('本场净赢最高，当前账面已平衡')
-          .fontSize(13)
-          .fontColor(TEXT_SECOND)
-      }
+      Scroll() {
+        Column({ space: 16 }) {
+          Column({ space: 8 }) {
+            Text('大赢家')
+              .fontSize(13)
+              .fontColor(TEXT_SECOND)
+            Text(this.currentWinnerName())
+              .fontSize(25)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(TEXT_MAIN)
+            Text(formatMoney(this.currentWinnerScore()))
+              .fontSize(28)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(this.currentWinnerScore() >= 0 ? GREEN : RED)
+            Text('本场净赢最高，当前账面已平衡')
+              .fontSize(13)
+              .fontColor(TEXT_SECOND)
+          }
       .width('100%')
       .padding(22)
       .borderRadius(24)
@@ -2999,61 +3468,73 @@ struct Index {
       .animation({ duration: 150, curve: Curve.FastOutSlowIn })
       .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'settlement-winner-card'))
 
-      this.SettlementSummary()
-      Column({ space: 12 }) {
-        this.SectionTitle('应收应付', '')
-        if (this.settlementRows().length === 0) {
-          Text('当前账面已结清')
-            .height(54)
-            .fontSize(14)
-            .fontColor(TEXT_SECOND)
-            .width('100%')
-            .textAlign(TextAlign.Center)
-        } else {
-          ForEach(this.settlementRows(), (row: string) => {
-            this.PayableRow(this.settlementRowName(row), this.settlementRowDesc(row), this.settlementRowAmount(row))
-          }, (row: string) => row)
+          this.SettlementSummary()
+          Column({ space: 12 }) {
+            this.SectionTitle('应收应付', '')
+            if (this.settlementRows().length === 0) {
+              Text('当前账面已结清')
+                .height(54)
+                .fontSize(14)
+                .fontColor(TEXT_SECOND)
+                .width('100%')
+                .textAlign(TextAlign.Center)
+            } else {
+              ForEach(this.settlementRows(), (row: string) => {
+                this.PayableRow(this.settlementRowName(row), this.settlementRowDesc(row), this.settlementRowAmount(row))
+              }, (row: string) => row)
+            }
+          }
+          .padding(16)
+          .borderRadius(22)
+          .backgroundColor(CARD_BG)
+          .scale(this.pressableCardScale('settlement-payable-card'))
+          .shadow({ radius: this.pressableCardShadowRadius('settlement-payable-card'), color: '#0C000000', offsetY: this.pressableCardShadowOffsetY('settlement-payable-card', 6) })
+          .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+          .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'settlement-payable-card'))
+
+          this.SettlementTransferCard()
+
+          Row({ space: 12 }) {
+            Button('封账')
+              .height(48)
+              .layoutWeight(1)
+              .borderRadius(16)
+              .fontSize(15)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(TEXT_MAIN)
+              .backgroundColor(SOFT_BG)
+              .stateEffect(true)
+              .scale(this.pressableControlScale('settlement-close'))
+              .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+              .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, 'settlement-close'))
+              .onClick(() => this.closeCurrentSession())
+            Button('返回牌局')
+              .height(48)
+              .layoutWeight(1)
+              .borderRadius(16)
+              .fontSize(15)
+              .fontWeight(FontWeight.Bold)
+              .fontColor('#FFFFFF')
+              .backgroundColor(BLUE)
+              .stateEffect(true)
+              .scale(this.pressableControlScale('settlement-return'))
+              .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+              .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, 'settlement-return'))
+              .onClick(() => this.closeSettlementPage())
+          }
         }
+        .padding({ left: 20, right: 20, top: 16, bottom: 30 })
+        .width('100%')
       }
-      .padding(16)
-      .borderRadius(22)
-      .backgroundColor(CARD_BG)
-      .scale(this.pressableCardScale('settlement-payable-card'))
-      .shadow({ radius: this.pressableCardShadowRadius('settlement-payable-card'), color: '#0C000000', offsetY: this.pressableCardShadowOffsetY('settlement-payable-card', 6) })
-      .animation({ duration: 150, curve: Curve.FastOutSlowIn })
-      .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'settlement-payable-card'))
-
-      this.SettlementTransferCard()
-
-      Row({ space: 12 }) {
-        Button('封账')
-          .height(48)
-          .layoutWeight(1)
-          .borderRadius(16)
-          .fontSize(15)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(TEXT_MAIN)
-          .backgroundColor(SOFT_BG)
-          .stateEffect(true)
-          .scale(this.pressableControlScale('settlement-close'))
-          .animation({ duration: 150, curve: Curve.FastOutSlowIn })
-          .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, 'settlement-close'))
-          .onClick(() => this.closeCurrentSession())
-        Button('返回牌局')
-          .height(48)
-          .layoutWeight(1)
-          .borderRadius(16)
-          .fontSize(15)
-          .fontWeight(FontWeight.Bold)
-          .fontColor('#FFFFFF')
-          .backgroundColor(BLUE)
-          .stateEffect(true)
-          .scale(this.pressableControlScale('settlement-return'))
-          .animation({ duration: 150, curve: Curve.FastOutSlowIn })
-          .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, 'settlement-return'))
-          .onClick(() => this.closeSettlementPage())
-      }
+      .layoutWeight(1)
+      .width('100%')
+      .scrollBar(BarState.Off)
+      .edgeEffect(EdgeEffect.Spring)
     }
+    .width('100%')
+    .height('100%')
+    .padding({ top: 26 })
+    .backgroundColor(PAGE_BG)
   }
 
   @Builder
@@ -3122,6 +3603,7 @@ struct Index {
         .fontWeight(FontWeight.Bold)
         .fontColor(amount > 0 ? GREEN : (amount < 0 ? RED : TEXT_SECOND))
     }
+    .width('100%')
     .height(58)
     .border({ width: { bottom: 1 }, color: LINE })
   }
@@ -3171,6 +3653,7 @@ struct Index {
         .fontWeight(FontWeight.Bold)
         .fontColor(BLUE)
     }
+    .width('100%')
     .height(58)
     .border({ width: { bottom: 1 }, color: LINE })
   }
@@ -3501,7 +3984,6 @@ struct Index {
   @Builder
   private FriendsPage() {
     Column({ space: 16 }) {
-      this.FriendsHeader()
       this.FriendSearchOpenBar()
       this.FriendListContent()
     }
@@ -3538,17 +4020,14 @@ struct Index {
   @Builder
   private FriendSearchOpenBar() {
     Row({ space: 8 }) {
-      this.SearchGlyph(18, BLUE)
-      Text('搜索牌友或牌局')
-        .fontSize(14)
-        .fontColor(TEXT_SECOND)
-        .layoutWeight(1)
+      this.SearchBarGlyph()
+      this.FriendSearchPlaceholderText()
     }
-    .height(44)
+    .height(FRIEND_SEARCH_BAR_HEIGHT)
     .alignItems(VerticalAlign.Center)
     .width('100%')
-    .padding({ left: 14, right: 14, top: 0, bottom: 0 })
-    .borderRadius(22)
+    .padding({ left: FRIEND_SEARCH_BAR_HORIZONTAL_PADDING, right: FRIEND_SEARCH_BAR_HORIZONTAL_PADDING, top: 0, bottom: 0 })
+    .borderRadius(FRIEND_SEARCH_BAR_RADIUS)
     .backgroundColor(SOFT_BG)
     .opacity(this.friendSearchOpenBarOpacity())
     .scale(this.pressableControlScale('friends-search-open'))
@@ -3558,14 +4037,44 @@ struct Index {
   }
 
   @Builder
+  private SearchBarGlyph() {
+    Row() {
+      this.SearchGlyph(18, BLUE)
+    }
+    .width(24)
+    .height(FRIEND_SEARCH_BAR_HEIGHT)
+    .justifyContent(FlexAlign.Center)
+    .alignItems(VerticalAlign.Center)
+  }
+
+  @Builder
+  private FriendSearchPlaceholderText() {
+    Row() {
+      Text(FRIEND_SEARCH_PLACEHOLDER)
+        .fontSize(FRIEND_SEARCH_PLACEHOLDER_FONT_SIZE)
+        .fontWeight(FontWeight.Regular)
+        .fontColor(TEXT_SECOND)
+    }
+    .height(FRIEND_SEARCH_BAR_HEIGHT)
+    .width('100%')
+    .layoutWeight(1)
+    .justifyContent(FlexAlign.Start)
+    .alignItems(VerticalAlign.Center)
+  }
+
+  @Builder
   private FriendSearchPage() {
-    Column({ space: 14 }) {
-      this.FriendSearchHeaderBar()
-      this.FriendSearchInlineContent()
+    Stack({ alignContent: Alignment.TopStart }) {
+      this.FriendSearchReturnContent()
+      Column({ space: 14 }) {
+        this.FriendSearchHeaderBar()
+        this.FriendSearchInlineContent()
+      }
+      .width('100%')
+      .justifyContent(FlexAlign.Start)
+      .alignItems(HorizontalAlign.Start)
     }
     .width('100%')
-    .justifyContent(FlexAlign.Start)
-    .alignItems(HorizontalAlign.Start)
     .opacity(this.friendSearchOverlayOpacity())
     .translate({ y: this.friendSearchOverlayOffsetY() })
     .animation({ duration: 280, curve: Curve.FastOutSlowIn })
@@ -3580,30 +4089,53 @@ struct Index {
   }
 
   @Builder
+  private FriendSearchReturnContent() {
+    Column({ space: 16 }) {
+      this.FriendsHeader()
+      Blank()
+        .width('100%')
+        .height(FRIEND_SEARCH_BAR_HEIGHT)
+      this.FriendListContent()
+    }
+    .width('100%')
+    .padding({ top: 12 })
+    .opacity(this.friendSearchReturnOpacity())
+    .translate({ y: this.friendSearchReturnOffsetY() })
+    .animation({ duration: 280, curve: Curve.FastOutSlowIn })
+  }
+
+  @Builder
   private FriendSearchHeaderBar() {
-    Row({ space: this.friendSearchHeaderGap() }) {
-      Row({ space: 8 }) {
-        this.SearchGlyph(18, BLUE)
-        if (this.friendSearchActive) {
-        TextInput({ text: this.friendSearchQuery, placeholder: '搜索牌友、牌局、输赢金额' })
-          .id(FRIEND_SEARCH_INPUT_ID)
+    Row({ space: 8 }) {
+      this.SearchBarGlyph()
+      if (this.friendSearchActive) {
+        Stack({ alignContent: Alignment.Start }) {
+          if (this.friendSearchQuery.length === 0) {
+            this.FriendSearchPlaceholderText()
+          }
+          TextInput({ text: this.friendSearchQuery })
+            .id(FRIEND_SEARCH_INPUT_ID)
+            .height(42)
+            .width('100%')
+            .fontSize(FRIEND_SEARCH_PLACEHOLDER_FONT_SIZE)
+            .fontWeight(FontWeight.Regular)
+            .fontColor(TEXT_MAIN)
+            .backgroundColor('#00000000')
+            .defaultFocus(true)
+            .padding({ left: 0, right: 0 })
+            .onAppear(() => {
+              setTimeout(() => {
+                focusControl.requestFocus(FRIEND_SEARCH_INPUT_ID);
+              }, 120);
+            })
+            .onChange((value: string) => {
+              this.friendSearchQuery = value;
+            })
+        }
           .height(42)
           .layoutWeight(1)
-          .fontSize(15)
-          .fontColor(TEXT_MAIN)
-          .placeholderColor(TEXT_SECOND)
-          .backgroundColor('#00000000')
-          .defaultFocus(true)
-          .padding({ left: 0, right: 0 })
-          .onAppear(() => {
-            setTimeout(() => {
-              focusControl.requestFocus(FRIEND_SEARCH_INPUT_ID);
-            }, 120);
-          })
-          .onChange((value: string) => {
-            this.friendSearchQuery = value;
-          })
-          if (this.friendSearchQuery.length > 0) {
+        if (this.friendSearchQuery.length > 0) {
+          Row() {
             Text('×')
               .width(24)
               .height(24)
@@ -3613,54 +4145,51 @@ struct Index {
               .textAlign(TextAlign.Center)
               .borderRadius(12)
               .backgroundColor('#E1E7F0')
-              .scale(this.pressableControlScale('friend-search-clear'))
-              .animation({ duration: 150, curve: Curve.FastOutSlowIn })
-              .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, 'friend-search-clear'))
-              .onClick(() => {
-                this.friendSearchQuery = '';
-              })
           }
-        } else {
-          Text('搜索牌友或牌局')
+            .width(24)
+            .height(FRIEND_SEARCH_BAR_HEIGHT)
+            .justifyContent(FlexAlign.Center)
+            .alignItems(VerticalAlign.Center)
+            .scale(this.pressableControlScale('friend-search-clear'))
+            .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+            .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, 'friend-search-clear'))
+            .onClick(() => {
+              this.friendSearchQuery = '';
+            })
+        }
+        Row() {
+          Text('取消')
             .fontSize(14)
-            .fontColor(TEXT_SECOND)
-            .layoutWeight(1)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(BLUE)
+            .textAlign(TextAlign.Center)
         }
-      }
-      .height(this.friendSearchBarHeight())
-      .alignItems(VerticalAlign.Center)
-      .layoutWeight(1)
-      .padding({ left: 14, right: this.friendSearchBarPaddingRight(), top: 0, bottom: 0 })
-      .borderRadius(this.friendSearchBarRadius())
-      .backgroundColor(SOFT_BG)
-      .shadow({ radius: this.friendSearchExpandedChrome() ? 12 : 0, color: '#08000000', offsetY: this.friendSearchExpandedChrome() ? 4 : 0 })
-      .onClick(() => {
-        if (!this.friendSearchActive) {
-          this.openFriendSearch();
-        }
-      })
-
-      if (this.friendSearchActive) {
-        Text('取消')
           .width(this.friendSearchCancelWidth())
-          .height(40)
-          .lineHeight(40)
-          .fontSize(15)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(BLUE)
-          .textAlign(TextAlign.Center)
+          .height(FRIEND_SEARCH_BAR_HEIGHT)
+          .justifyContent(FlexAlign.Center)
+          .alignItems(VerticalAlign.Center)
           .clip(true)
           .scale(this.pressableControlScale('friend-search-cancel'))
           .opacity(this.friendSearchCancelOpacity())
-          .translate({ y: this.friendSearchMotionReady ? 0 : 6 })
           .animation({ duration: 260, curve: Curve.FastOutSlowIn })
           .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, 'friend-search-cancel'))
           .onClick(() => this.closeFriendSearch())
+      } else {
+        this.FriendSearchPlaceholderText()
       }
     }
     .height(this.friendSearchBarHeight())
     .alignItems(VerticalAlign.Center)
     .width('100%')
+    .padding({ left: FRIEND_SEARCH_BAR_HORIZONTAL_PADDING, right: this.friendSearchBarPaddingRight(), top: 0, bottom: 0 })
+    .borderRadius(this.friendSearchBarRadius())
+    .backgroundColor(SOFT_BG)
+    .shadow({ radius: this.friendSearchExpandedChrome() ? 12 : 0, color: '#08000000', offsetY: this.friendSearchExpandedChrome() ? 4 : 0 })
+    .onClick(() => {
+      if (!this.friendSearchActive) {
+        this.openFriendSearch();
+      }
+    })
     .scale(this.friendSearchBarScale())
     .translate({ y: this.friendSearchBarOffsetY() })
     .animation({ duration: 280, curve: Curve.FastOutSlowIn })
@@ -3733,8 +4262,8 @@ struct Index {
       }
     }
     .width('100%')
-    .opacity(this.friendSearchActive ? 0 : 1)
-    .translate({ y: this.friendSearchActive ? -18 : 0 })
+    .opacity(this.friendSearchVisible ? 0 : 1)
+    .translate({ y: this.friendSearchVisible ? -18 : 0 })
     .animation({ duration: 220, curve: Curve.FastOutSlowIn })
   }
 
@@ -3998,6 +4527,7 @@ struct Index {
       .shadow({ radius: this.pressableCardShadowRadius('mine-stats-card'), color: '#10000000', offsetY: this.pressableCardShadowOffsetY('mine-stats-card') })
       .animation({ duration: 150, curve: Curve.FastOutSlowIn })
       .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'mine-stats-card'))
+      .onClick(() => this.cancelClearDataConfirmation())
 
       Column({ space: 0 }) {
         this.SettingRow('关于', 'v0.1')
@@ -4010,6 +4540,7 @@ struct Index {
       .shadow({ radius: this.pressableCardShadowRadius('mine-about-card'), color: '#10000000', offsetY: this.pressableCardShadowOffsetY('mine-about-card') })
       .animation({ duration: 150, curve: Curve.FastOutSlowIn })
       .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'mine-about-card'))
+      .onClick(() => this.cancelClearDataConfirmation())
 
       Button(this.confirmClearData ? '再次点击确认清空所有数据' : '清空所有数据')
         .height(52)
@@ -4024,6 +4555,11 @@ struct Index {
         .animation({ duration: 150, curve: Curve.FastOutSlowIn })
         .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, 'mine-clear-data'))
         .onClick(() => this.clearAllData())
+
+      Blank()
+        .width('100%')
+        .height(180)
+        .onClick(() => this.cancelClearDataConfirmation())
     }
     .width('100%')
     .justifyContent(FlexAlign.Start)
@@ -4131,38 +4667,67 @@ struct Index {
 
   @Builder
   private EditGameSheet() {
-    Column({ space: 16 }) {
+    Column() {
       Text('编辑牌局')
         .fontSize(24)
         .fontWeight(FontWeight.Bold)
         .fontColor(TEXT_MAIN)
-      this.FullField('牌局名称', this.editSessionTitle, (value: string) => this.editSessionTitle = value)
-      Column({ space: 10 }) {
-        Text('参与人和入场金额')
-          .fontSize(14)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(TEXT_MAIN)
-        this.EditablePlayerRow(this.editPlayer0Name, this.editPlayer0BuyIn, (value: string) => this.editPlayer0Name = value, (value: string) => this.editPlayer0BuyIn = value)
-        this.EditablePlayerRow(this.editPlayer1Name, this.editPlayer1BuyIn, (value: string) => this.editPlayer1Name = value, (value: string) => this.editPlayer1BuyIn = value)
-        this.EditablePlayerRow(this.editPlayer2Name, this.editPlayer2BuyIn, (value: string) => this.editPlayer2Name = value, (value: string) => this.editPlayer2BuyIn = value)
-        this.EditablePlayerRow(this.editPlayer3Name, this.editPlayer3BuyIn, (value: string) => this.editPlayer3Name = value, (value: string) => this.editPlayer3BuyIn = value)
-      }
-      Button('保存')
-        .height(50)
         .width('100%')
-        .borderRadius(14)
-        .fontSize(16)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#FFFFFF')
-        .backgroundColor(BLUE)
-        .stateEffect(true)
-        .scale(this.pressableControlScale('sheet-edit-save'))
-        .animation({ duration: 150, curve: Curve.FastOutSlowIn })
-        .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, 'sheet-edit-save'))
-        .onClick(() => this.saveCurrentSession())
+        .textAlign(TextAlign.Center)
+        .padding({ left: 22, right: 22, top: 22, bottom: 16 })
+
+      Scroll() {
+        Column({ space: 16 }) {
+          Column({ space: 12 }) {
+            this.VerticalTextField('牌局名称', this.editSessionTitle, '今天的牌局', (value: string) => this.editSessionTitle = value)
+            this.EditDefaultBuyInField()
+          }
+          .width('100%')
+          Column({ space: 10 }) {
+            Text('参与人和入场金额')
+              .fontSize(18)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(TEXT_MAIN)
+              .width('100%')
+            this.EditPlayerNameField('牌友1', this.editPlayer0Name, (value: string) => this.editPlayer0Name = value)
+            this.EditPlayer0BuyInStepper()
+            this.EditPlayerNameField('牌友2', this.editPlayer1Name, (value: string) => this.editPlayer1Name = value)
+            this.EditPlayer1BuyInStepper()
+            this.EditPlayerNameField('牌友3', this.editPlayer2Name, (value: string) => this.editPlayer2Name = value)
+            this.EditPlayer2BuyInStepper()
+            this.EditPlayerNameField('牌友4', this.editPlayer3Name, (value: string) => this.editPlayer3Name = value)
+            this.EditPlayer3BuyInStepper()
+          }
+          .width('100%')
+        }
+        .width('100%')
+        .padding({ left: 22, right: 22, top: 8, bottom: 18 })
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .scrollBar(BarState.Off)
+      .edgeEffect(EdgeEffect.Spring)
+
+      Column() {
+        Button('保存')
+          .height(50)
+          .width('100%')
+          .borderRadius(14)
+          .fontSize(16)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#FFFFFF')
+          .backgroundColor(BLUE)
+          .stateEffect(true)
+          .scale(this.pressableControlScale('sheet-edit-save'))
+          .animation({ duration: 150, curve: Curve.FastOutSlowIn })
+          .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, 'sheet-edit-save'))
+          .onClick(() => this.saveCurrentSession())
+      }
+        .width('100%')
+        .padding({ left: 22, right: 22, top: 14, bottom: 30 })
     }
     .width('100%')
-    .padding({ left: 22, right: 22, top: 22, bottom: 34 })
+    .height('100%')
   }
 
   @Builder
@@ -4235,7 +4800,7 @@ struct Index {
       Column({ space: 10 }) {
         this.SectionTitle('进出账流水', `${this.currentRoundCountFor(session)} 笔`)
         if (this.activeRoundsFor(session).length > 0) {
-          List() {
+          List({ space: CASHFLOW_ROW_GAP }) {
             ForEach(this.activeRoundsFor(session), (round: RoundRecord) => {
               this.CashflowRecordListItem(round, false)
             }, (round: RoundRecord) => round.id)
@@ -4335,27 +4900,255 @@ struct Index {
   }
 
   @Builder
-  private EditablePlayerRow(name: string, amount: string, onNameChange: (value: string) => void, onAmountChange: (value: string) => void) {
-    Row({ space: 10 }) {
+  private EditDefaultBuyInField() {
+    Column({ space: 8 }) {
+      Text('默认入场金额')
+        .fontSize(13)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(TEXT_SECOND)
+        .width('100%')
+      Row({ space: 10 }) {
+        Button() {
+          SymbolGlyph($r('sys.symbol.minus'))
+            .fontSize(18)
+            .fontWeight(FontWeight.Bold)
+            .fontColor([BLUE])
+        }
+          .width(42)
+          .height(42)
+          .borderRadius(21)
+          .backgroundColor('#F8F6F2')
+          .stateEffect(true)
+          .onClick(() => this.adjustEditDefaultBuyIn(-50))
+
+        Text(this.amountText(this.editDefaultBuyIn, 200))
+          .height(42)
+          .layoutWeight(1)
+          .fontSize(16)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(TEXT_MAIN)
+          .textAlign(TextAlign.Center)
+          .borderRadius(13)
+          .backgroundColor('#F8F6F2')
+
+        Button() {
+          SymbolGlyph($r('sys.symbol.plus'))
+            .fontSize(18)
+            .fontWeight(FontWeight.Bold)
+            .fontColor([BLUE])
+        }
+          .width(42)
+          .height(42)
+          .borderRadius(21)
+          .backgroundColor('#F8F6F2')
+          .stateEffect(true)
+          .onClick(() => this.adjustEditDefaultBuyIn(50))
+      }
+      .width('100%')
+      .height(42)
+      .alignItems(VerticalAlign.Center)
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  private EditPlayerNameField(label: string, name: string, onNameChange: (value: string) => void) {
+    Column({ space: 8 }) {
+      Text(label)
+        .fontSize(13)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(TEXT_SECOND)
+        .width('100%')
       TextInput({ text: name })
-        .height(40)
-        .layoutWeight(1)
+        .height(42)
+        .width('100%')
         .fontSize(15)
         .fontColor(TEXT_MAIN)
-        .padding({ left: 12 })
+        .padding({ left: 12, right: 12 })
         .borderRadius(13)
         .backgroundColor('#F8F6F2')
         .onChange(onNameChange)
-      TextInput({ text: amount })
-        .height(40)
-        .width(88)
-        .fontSize(15)
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding({ top: 4, bottom: 0 })
+  }
+
+  @Builder
+  private EditPlayer0BuyInStepper() {
+    Row({ space: 10 }) {
+      Button() {
+        SymbolGlyph($r('sys.symbol.minus'))
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor([BLUE])
+      }
+        .width(42)
+        .height(42)
+        .borderRadius(21)
+        .backgroundColor('#F8F6F2')
+        .stateEffect(true)
+        .onClick(() => this.adjustEditPlayerBuyIn(0, -10))
+
+      Text(this.amountText(this.editPlayer0BuyIn, this.parsePositiveAmount(this.editDefaultBuyIn, 200)))
+        .height(42)
+        .layoutWeight(1)
+        .fontSize(16)
+        .fontWeight(FontWeight.Bold)
         .fontColor(TEXT_MAIN)
         .textAlign(TextAlign.Center)
         .borderRadius(13)
         .backgroundColor('#F8F6F2')
-        .onChange(onAmountChange)
+
+      Button() {
+        SymbolGlyph($r('sys.symbol.plus'))
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor([BLUE])
+      }
+        .width(42)
+        .height(42)
+        .borderRadius(21)
+        .backgroundColor('#F8F6F2')
+        .stateEffect(true)
+        .onClick(() => this.adjustEditPlayerBuyIn(0, 10))
     }
+    .width('100%')
+    .height(42)
+    .alignItems(VerticalAlign.Center)
+  }
+
+  @Builder
+  private EditPlayer1BuyInStepper() {
+    Row({ space: 10 }) {
+      Button() {
+        SymbolGlyph($r('sys.symbol.minus'))
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor([BLUE])
+      }
+        .width(42)
+        .height(42)
+        .borderRadius(21)
+        .backgroundColor('#F8F6F2')
+        .stateEffect(true)
+        .onClick(() => this.adjustEditPlayerBuyIn(1, -10))
+
+      Text(this.amountText(this.editPlayer1BuyIn, this.parsePositiveAmount(this.editDefaultBuyIn, 200)))
+        .height(42)
+        .layoutWeight(1)
+        .fontSize(16)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(TEXT_MAIN)
+        .textAlign(TextAlign.Center)
+        .borderRadius(13)
+        .backgroundColor('#F8F6F2')
+
+      Button() {
+        SymbolGlyph($r('sys.symbol.plus'))
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor([BLUE])
+      }
+        .width(42)
+        .height(42)
+        .borderRadius(21)
+        .backgroundColor('#F8F6F2')
+        .stateEffect(true)
+        .onClick(() => this.adjustEditPlayerBuyIn(1, 10))
+    }
+    .width('100%')
+    .height(42)
+    .alignItems(VerticalAlign.Center)
+  }
+
+  @Builder
+  private EditPlayer2BuyInStepper() {
+    Row({ space: 10 }) {
+      Button() {
+        SymbolGlyph($r('sys.symbol.minus'))
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor([BLUE])
+      }
+        .width(42)
+        .height(42)
+        .borderRadius(21)
+        .backgroundColor('#F8F6F2')
+        .stateEffect(true)
+        .onClick(() => this.adjustEditPlayerBuyIn(2, -10))
+
+      Text(this.amountText(this.editPlayer2BuyIn, this.parsePositiveAmount(this.editDefaultBuyIn, 200)))
+        .height(42)
+        .layoutWeight(1)
+        .fontSize(16)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(TEXT_MAIN)
+        .textAlign(TextAlign.Center)
+        .borderRadius(13)
+        .backgroundColor('#F8F6F2')
+
+      Button() {
+        SymbolGlyph($r('sys.symbol.plus'))
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor([BLUE])
+      }
+        .width(42)
+        .height(42)
+        .borderRadius(21)
+        .backgroundColor('#F8F6F2')
+        .stateEffect(true)
+        .onClick(() => this.adjustEditPlayerBuyIn(2, 10))
+    }
+    .width('100%')
+    .height(42)
+    .alignItems(VerticalAlign.Center)
+  }
+
+  @Builder
+  private EditPlayer3BuyInStepper() {
+    Row({ space: 10 }) {
+      Button() {
+        SymbolGlyph($r('sys.symbol.minus'))
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor([BLUE])
+      }
+        .width(42)
+        .height(42)
+        .borderRadius(21)
+        .backgroundColor('#F8F6F2')
+        .stateEffect(true)
+        .onClick(() => this.adjustEditPlayerBuyIn(3, -10))
+
+      Text(this.amountText(this.editPlayer3BuyIn, this.parsePositiveAmount(this.editDefaultBuyIn, 200)))
+        .height(42)
+        .layoutWeight(1)
+        .fontSize(16)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(TEXT_MAIN)
+        .textAlign(TextAlign.Center)
+        .borderRadius(13)
+        .backgroundColor('#F8F6F2')
+
+      Button() {
+        SymbolGlyph($r('sys.symbol.plus'))
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor([BLUE])
+      }
+        .width(42)
+        .height(42)
+        .borderRadius(21)
+        .backgroundColor('#F8F6F2')
+        .stateEffect(true)
+        .onClick(() => this.adjustEditPlayerBuyIn(3, 10))
+    }
+    .width('100%')
+    .height(42)
+    .alignItems(VerticalAlign.Center)
   }
 
   @Builder
@@ -4438,8 +5231,11 @@ struct Index {
           .fontColor(BLUE)
       }
     }
-    .height(58)
-    .border({ width: { bottom: 1 }, color: LINE })
+    .width('100%')
+    .height(54)
+    .padding({ left: 14, right: 14 })
+    .borderRadius(18)
+    .backgroundColor('#F8FAFF')
     .scale(this.pressableControlScale(`entry-picker-${user.id}`))
     .animation({ duration: 150, curve: Curve.FastOutSlowIn })
     .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, `entry-picker-${user.id}`))

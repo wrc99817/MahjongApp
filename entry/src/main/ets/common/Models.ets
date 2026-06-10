@@ -55,12 +55,13 @@ export class GameSession {
   note: string = '';
   playerIds: string[] = [];
   buyIns: Record<string, number> = {};
+  defaultBuyIn: number = 200;
   createdAt: number = 0;
   settledAt: number = 0;
   status: SessionStatus = 'active';
   syncState: SyncState = 'synced';
 
-  constructor(id: string, groupId: string, title: string, basePoint: number, note: string, playerIds: string[], createdAt: number, syncState: SyncState, buyIns: Record<string, number> = {}, status: SessionStatus = 'active', settledAt: number = 0) {
+  constructor(id: string, groupId: string, title: string, basePoint: number, note: string, playerIds: string[], createdAt: number, syncState: SyncState, buyIns: Record<string, number> = {}, status: SessionStatus = 'active', settledAt: number = 0, defaultBuyIn: number = 200) {
     this.id = id;
     this.groupId = groupId;
     this.title = title;
@@ -68,6 +69,7 @@ export class GameSession {
     this.note = note;
     this.playerIds = playerIds;
     this.buyIns = buyIns;
+    this.defaultBuyIn = defaultBuyIn;
     this.createdAt = createdAt;
     this.status = status;
     this.settledAt = settledAt;

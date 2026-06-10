@@ -96,20 +96,20 @@ export class InMemoryLedgerRepository implements LedgerRepository {
     return updated;
   }
 
-  createSession(groupId: string, title: string, basePoint: number, note: string, playerIds: string[], buyIns: Record<string, number> = {}): GameSession {
-    const session = new GameSession(makeId('s'), groupId, title, basePoint, note, playerIds.slice(), now(), 'pending', this.cloneBuyIns(buyIns, playerIds));
+  createSession(groupId: string, title: string, basePoint: number, note: string, playerIds: string[], buyIns: Record<string, number> = {}, defaultBuyIn: number = 200): GameSession {
+    const session = new GameSession(makeId('s'), groupId, title, basePoint, note, playerIds.slice(), now(), 'pending', this.cloneBuyIns(buyIns, playerIds), 'active', 0, defaultBuyIn);
     this.sessions.unshift(session);
     this.enqueue(groupId, session.id, 'create_session', JSON.stringify(session));
     return session;
   }
 
-  updateSession(groupId: string, sessionId: string, title: string, basePoint: number, note: string, playerIds: string[], buyIns: Record<string, number>): GameSession {
+  updateSession(groupId: string, sessionId: string, title: string, basePoint: number, note: string, playerIds: string[], buyIns: Record<string, number>, defaultBuyIn?: number): GameSession {
     const sessionIndex = this.sessions.findIndex((item: GameSession) => item.id === sessionId);
     if (sessionIndex < 0) {
       throw new Error('牌局不存在');
     }
     const current = this.sessions[sessionIndex];
-    const updated = new GameSession(current.id, current.groupId, title, basePoint, note, playerIds.slice(), current.createdAt, 'pending', this.cloneBuyIns(buyIns, playerIds), current.status, current.settledAt);
+    const updated = new GameSession(current.id, current.groupId, title, basePoint, note, playerIds.slice(), current.createdAt, 'pending', this.cloneBuyIns(buyIns, playerIds), current.status, current.settledAt, defaultBuyIn ?? current.defaultBuyIn);
     this.sessions[sessionIndex] = updated;
     this.enqueue(groupId, updated.id, 'update_session', JSON.stringify(updated));
     return updated;
@@ -121,7 +121,7 @@ export class InMemoryLedgerRepository implements LedgerRepository {
       throw new Error('牌局不存在');
     }
     const current = this.sessions[sessionIndex];
-    const updated = new GameSession(current.id, current.groupId, current.title, current.basePoint, current.note, current.playerIds.slice(), current.createdAt, 'pending', this.cloneBuyIns(current.buyIns, current.playerIds), 'settled', now());
+    const updated = new GameSession(current.id, current.groupId, current.title, current.basePoint, current.note, current.playerIds.slice(), current.createdAt, 'pending', this.cloneBuyIns(current.buyIns, current.playerIds), 'settled', now(), current.defaultBuyIn);
     this.sessions[sessionIndex] = updated;
     this.enqueue(groupId, updated.id, 'settle_session', JSON.stringify(updated));
     return updated;
