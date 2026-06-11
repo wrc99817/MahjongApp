@@ -3,12 +3,14 @@ import hilog from '@ohos.hilog';
 import UIAbility from '@ohos.app.ability.UIAbility';
 import Want from '@ohos.app.ability.Want';
 import window from '@ohos.window';
+import { ledgerRepository } from '../repositories/InMemoryLedgerRepository';
 
 const APP_BACKGROUND_COLOR: string = '#F1F3F5';
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     hilog.info(0x0000, 'MahjongLedger', 'EntryAbility onCreate');
+    ledgerRepository.initialize(this.context);
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {

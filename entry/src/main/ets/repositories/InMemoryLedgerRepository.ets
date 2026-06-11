@@ -1,6 +1,15 @@
+import common from '@ohos.app.ability.common';
+import preferences from '@ohos.data.preferences';
 import { GameSession, Group, GroupMember, LedgerOperation, OperationType, RoundRecord, User } from '../common/Models';
 import { LedgerRepository } from './LedgerRepository';
 import { validateRound } from '../services/Money';
+
+const LEDGER_PREFERENCES_NAME = 'yiju_ledger_store';
+const LEDGER_SNAPSHOT_KEY = 'ledger_snapshot_v1';
+const LEDGER_SNAPSHOT_CHUNK_COUNT_KEY = 'ledger_snapshot_chunk_count_v1';
+const LEDGER_SNAPSHOT_CHUNK_PREFIX = 'ledger_snapshot_chunk_v1_';
+const LEDGER_SNAPSHOT_CHUNK_SIZE = 7000;
+const LEDGER_SCHEMA_VERSION = 1;
 
 function now(): number {
   return new Date().getTime();
@@ -8,6 +17,17 @@ function now(): number {
 
 function makeId(prefix: string): string {
   return `${prefix}_${new Date().getTime()}_${Math.floor(Math.random() * 10000)}`;
+}
+
+interface LedgerSnapshot {
+  schemaVersion: number;
+  currentUserId: string;
+  users: User[];
+  groups: Group[];
+  members: GroupMember[];
+  sessions: GameSession[];
+  rounds: RoundRecord[];
+  operations: LedgerOperation[];
 }
 
 export class InMemoryLedgerRepository implements LedgerRepository {
@@ -20,12 +40,22 @@ export class InMemoryLedgerRepository implements LedgerRepository {
   private sessions: GameSession[] = [];
   private rounds: RoundRecord[] = [];
   private operations: LedgerOperation[] = [];
+  private storage?: preferences.Preferences;
 
   constructor() {
     const group = new Group('g_demo', '本地麻将账本', this.user.id, 'MJ2026', now(), 'synced');
     this.groups.push(group);
     for (let index = 0; index < this.users.length; index++) {
       this.members.push(new GroupMember(group.id, this.users[index].id, index === 0 ? 'owner' : 'member', group.createdAt));
+    }
+  }
+
+  initialize(context: common.UIAbilityContext): void {
+    try {
+      this.storage = preferences.getPreferencesSync(context, { name: LEDGER_PREFERENCES_NAME });
+      this.restoreFromStorage();
+    } catch (error) {
+      console.error(`LedgerRepository initialize failed: ${(error as Error).message}`);
     }
   }
 
@@ -179,11 +209,134 @@ export class InMemoryLedgerRepository implements LedgerRepository {
     const operation = this.operations.find((item: LedgerOperation) => item.id === operationId);
     if (operation) {
       operation.syncState = 'synced';
+      this.persist();
     }
   }
 
   private enqueue(groupId: string, entityId: string, type: OperationType, payload: string): void {
     this.operations.unshift(new LedgerOperation(makeId('op'), groupId, entityId, type, this.user.id, now(), payload));
+    this.persist();
+  }
+
+  private restoreFromStorage(): void {
+    if (!this.storage) {
+      return;
+    }
+    const rawSnapshot = this.readSnapshotString();
+    if (rawSnapshot.length === 0) {
+      this.persist();
+      return;
+    }
+    try {
+      const snapshot = JSON.parse(rawSnapshot) as LedgerSnapshot;
+      if (snapshot.schemaVersion !== LEDGER_SCHEMA_VERSION || snapshot.users.length === 0 || snapshot.groups.length === 0) {
+        this.persist();
+        return;
+      }
+      this.users = snapshot.users.map((item: User) => this.restoreUser(item));
+      const restoredCurrentUser = this.users.find((item: User) => item.id === snapshot.currentUserId);
+      this.user = restoredCurrentUser ? restoredCurrentUser : this.users[0];
+      this.groups = snapshot.groups.map((item: Group) => this.restoreGroup(item));
+      this.members = snapshot.members.map((item: GroupMember) => this.restoreMember(item));
+      this.sessions = snapshot.sessions.map((item: GameSession) => this.restoreSession(item));
+      this.rounds = snapshot.rounds.map((item: RoundRecord) => this.restoreRound(item));
+      this.operations = snapshot.operations.map((item: LedgerOperation) => this.restoreOperation(item));
+    } catch (error) {
+      console.error(`LedgerRepository restore failed: ${(error as Error).message}`);
+      this.persist();
+    }
+  }
+
+  private persist(): void {
+    if (!this.storage) {
+      return;
+    }
+    const snapshot: LedgerSnapshot = {
+      schemaVersion: LEDGER_SCHEMA_VERSION,
+      currentUserId: this.user.id,
+      users: this.users,
+      groups: this.groups,
+      members: this.members,
+      sessions: this.sessions,
+      rounds: this.rounds,
+      operations: this.operations
+    };
+    try {
+      const serialized = JSON.stringify(snapshot);
+      const chunkCount = Math.max(1, Math.ceil(serialized.length / LEDGER_SNAPSHOT_CHUNK_SIZE));
+      const previousChunkCountValue = this.storage.getSync(LEDGER_SNAPSHOT_CHUNK_COUNT_KEY, 0);
+      const previousChunkCount = typeof previousChunkCountValue === 'number' ? previousChunkCountValue : 0;
+      for (let index = 0; index < chunkCount; index++) {
+        const start = index * LEDGER_SNAPSHOT_CHUNK_SIZE;
+        this.storage.putSync(`${LEDGER_SNAPSHOT_CHUNK_PREFIX}${index}`, serialized.slice(start, start + LEDGER_SNAPSHOT_CHUNK_SIZE));
+      }
+      for (let index = chunkCount; index < previousChunkCount; index++) {
+        this.storage.deleteSync(`${LEDGER_SNAPSHOT_CHUNK_PREFIX}${index}`);
+      }
+      this.storage.deleteSync(LEDGER_SNAPSHOT_KEY);
+      this.storage.putSync(LEDGER_SNAPSHOT_CHUNK_COUNT_KEY, chunkCount);
+      this.storage.flushSync();
+    } catch (error) {
+      console.error(`LedgerRepository persist failed: ${(error as Error).message}`);
+    }
+  }
+
+  private readSnapshotString(): string {
+    if (!this.storage) {
+      return '';
+    }
+    const chunkCountValue = this.storage.getSync(LEDGER_SNAPSHOT_CHUNK_COUNT_KEY, 0);
+    if (typeof chunkCountValue === 'number' && chunkCountValue > 0) {
+      let snapshot = '';
+      for (let index = 0; index < chunkCountValue; index++) {
+        const chunk = this.storage.getSync(`${LEDGER_SNAPSHOT_CHUNK_PREFIX}${index}`, '');
+        if (typeof chunk !== 'string') {
+          return '';
+        }
+        snapshot += chunk;
+      }
+      return snapshot;
+    }
+    const legacySnapshot = this.storage.getSync(LEDGER_SNAPSHOT_KEY, '');
+    return typeof legacySnapshot === 'string' ? legacySnapshot : '';
+  }
+
+  private restoreUser(item: User): User {
+    return new User(item.id, item.displayName, item.avatarColor);
+  }
+
+  private restoreGroup(item: Group): Group {
+    return new Group(item.id, item.name, item.ownerId, item.inviteCode, item.createdAt, item.syncState);
+  }
+
+  private restoreMember(item: GroupMember): GroupMember {
+    return new GroupMember(item.groupId, item.userId, item.role, item.joinedAt);
+  }
+
+  private restoreSession(item: GameSession): GameSession {
+    return new GameSession(item.id, item.groupId, item.title, item.basePoint, item.note, item.playerIds.slice(), item.createdAt, item.syncState, this.copyScores(item.buyIns), item.status, item.settledAt, item.defaultBuyIn);
+  }
+
+  private restoreRound(item: RoundRecord): RoundRecord {
+    const round = new RoundRecord(item.id, item.sessionId, item.index, this.copyScores(item.playerScores), item.note, item.createdBy, item.createdAt, item.syncState);
+    round.version = item.version;
+    round.isVoided = item.isVoided;
+    return round;
+  }
+
+  private restoreOperation(item: LedgerOperation): LedgerOperation {
+    const operation = new LedgerOperation(item.id, item.groupId, item.entityId, item.type, item.actorId, item.createdAt, item.payload);
+    operation.version = item.version;
+    operation.syncState = item.syncState;
+    return operation;
+  }
+
+  private copyScores(source: Record<string, number>): Record<string, number> {
+    const result: Record<string, number> = {};
+    Object.keys(source).forEach((key: string) => {
+      result[key] = Number(source[key] ?? 0);
+    });
+    return result;
   }
 
   private cloneBuyIns(source: Record<string, number>, playerIds: string[]): Record<string, number> {

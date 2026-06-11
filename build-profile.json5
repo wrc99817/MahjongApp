@@ -1,6 +1,20 @@
 {
   "app": {
-    "signingConfigs": [],
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "C:\\Users\\wrc9817\\.ohos\\config\\default_MahjongApp_N7gLjGsSWmbsx752wUj8dP3JUvSyAc5_-FQ_y8KOEtc=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001B8361B196001D36411563858B105582159A5F5C513264A96A7CE63FE85F8C5A8775184BA05FF464",
+          "profile": "C:\\Users\\wrc9817\\.ohos\\config\\default_MahjongApp_N7gLjGsSWmbsx752wUj8dP3JUvSyAc5_-FQ_y8KOEtc=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "C:\\Users\\wrc9817\\.ohos\\config\\default_MahjongApp_N7gLjGsSWmbsx752wUj8dP3JUvSyAc5_-FQ_y8KOEtc=.p12",
+          "storePassword": "0000001BF8018C1C7BA2BBD56D89F7FCA3D3020F998A250536B5057159ACF7F9FC928D411632FA972F0E01"
+        }
+      }
+    ],
     "products": [
       {
         "name": "default",

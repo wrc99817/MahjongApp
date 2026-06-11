@@ -7,6 +7,7 @@ import { SyncService } from '../services/SyncService';
 const PAGE_BG: string = '#F1F3F5';
 const CARD_BG: string = '#FFFFFF';
 const SOFT_BG: string = '#EDF2FA';
+const CONTROL_BG: string = '#F8FAFF';
 const NAV_BG: string = '#B3F1F3F5';
 const TEXT_MAIN: string = '#1F2329';
 const TEXT_SECOND: string = '#69707A';
@@ -97,7 +98,7 @@ struct EntryAmountTextField {
         .fontSize(15)
         .fontColor(TEXT_MAIN)
         .borderRadius(13)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
         .enablePreviewText(false)
         .inputFilter(this.target === 2 ? '[-0-9.]' : '[0-9.]')
         .onChange((value: string, previewText?: PreviewText) => {
@@ -698,6 +699,14 @@ struct Index {
     return parts.join('，');
   }
 
+  private sessionDefaultBuyInText(session: GameSession): string {
+    return `${Number(session.defaultBuyIn ?? 200)}`;
+  }
+
+  private sessionStatusText(session: GameSession): string {
+    return session.status === 'settled' ? '已封账' : '进行中';
+  }
+
   private sessionScoreForCurrent(session: GameSession): number {
     const records = ledgerRepository.listRounds(session.id);
     return this.displayBalanceFromRounds(records, ledgerRepository.currentUser().id);
@@ -820,29 +829,57 @@ struct Index {
     return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
   }
 
-  private trendScoreAt(index: number, scope: number = 0): number {
+  private trendDailyRowsForScope(scope: number): string[] {
+    const rows: string[] = [];
     const sessions = this.trendSessionsForScope(scope);
-    if (index < 0 || index >= sessions.length) {
+    for (let index = 0; index < sessions.length; index++) {
+      const time = this.sessionTrendTime(sessions[index]);
+      const date = new Date(time);
+      const key = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+      const label = `${date.getMonth() + 1}/${date.getDate()}`;
+      const score = this.sessionScoreForCurrent(sessions[index]);
+      let existingIndex = -1;
+      for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+        if (rows[rowIndex].split('|')[0] === key) {
+          existingIndex = rowIndex;
+          break;
+        }
+      }
+      if (existingIndex >= 0) {
+        const parts = rows[existingIndex].split('|');
+        rows[existingIndex] = `${key}|${label}|${Number(parts[2]) + score}`;
+      } else {
+        rows.push(`${key}|${label}|${score}`);
+      }
+    }
+    return rows;
+  }
+
+  private trendScoreAt(index: number, scope: number = 0): number {
+    const rows = this.trendDailyRowsForScope(scope);
+    if (index < 0 || index >= rows.length) {
       return 0;
     }
-    return this.sessionScoreForCurrent(sessions[index]);
+    return Number(rows[index].split('|')[2]);
   }
 
   private trendDateTextAt(index: number, scope: number = 0): string {
-    const sessions = this.trendSessionsForScope(scope);
-    if (index < 0 || index >= sessions.length) {
+    const rows = this.trendDailyRowsForScope(scope);
+    if (index < 0 || index >= rows.length) {
       return '';
     }
-    const time = this.sessionTrendTime(sessions[index]);
-    const date = new Date(time);
-    return `${date.getMonth() + 1}/${date.getDate()}`;
+    return rows[index].split('|')[1];
+  }
+
+  private trendAmountTextAt(index: number, scope: number = 0): string {
+    return formatMoney(this.trendScoreAt(index, scope));
   }
 
   private trendPointIndexes(scope: number = 0): string[] {
     const result: string[] = [];
-    const sessions = this.trendSessionsForScope(scope);
-    const count = Math.min(7, sessions.length);
-    const offset = Math.max(0, sessions.length - count);
+    const rows = this.trendDailyRowsForScope(scope);
+    const count = Math.min(7, rows.length);
+    const offset = Math.max(0, rows.length - count);
     for (let index = 0; index < count; index++) {
       result.push(`${offset + index}`);
     }
@@ -2881,8 +2918,8 @@ struct Index {
       .justifyContent(FlexAlign.Center)
       .alignItems(HorizontalAlign.Start)
       .borderRadius(18)
-      .backgroundColor('#F7F8FB')
-      .border({ width: 1, color: '#EEF1F6' })
+      .backgroundColor(CONTROL_BG)
+      .border({ width: 1, color: LINE })
   }
 
   @Builder
@@ -2890,12 +2927,12 @@ struct Index {
     Row() {
       Text(label)
         .fontSize(12)
-        .fontColor(TEXT_SECOND)
+        .fontColor(BLUE)
         .layoutWeight(1)
       Text(value)
         .fontSize(15)
         .fontWeight(FontWeight.Bold)
-        .fontColor(TEXT_MAIN)
+        .fontColor(BLUE)
         .maxLines(1)
     }
       .height(34)
@@ -2903,8 +2940,8 @@ struct Index {
       .padding({ left: 14, right: 14 })
       .alignItems(VerticalAlign.Center)
       .borderRadius(17)
-      .backgroundColor('#F8F6F2')
-      .border({ width: 1, color: '#EFECE7' })
+      .backgroundColor(BLUE_SOFT)
+      .border({ width: 1, color: '#DDE7FF' })
   }
 
   @Builder
@@ -2948,7 +2985,7 @@ struct Index {
     .justifyContent(FlexAlign.Center)
     .alignItems(HorizontalAlign.Start)
     .borderRadius(20)
-    .backgroundColor('#F8FAFF')
+    .backgroundColor(CONTROL_BG)
   }
 
   @Builder
@@ -2991,7 +3028,7 @@ struct Index {
       .fontSize(13)
       .fontWeight(FontWeight.Bold)
       .fontColor(this.entryDraft.mode === index ? BLUE : TEXT_SECOND)
-      .backgroundColor(this.entryDraft.mode === index ? CARD_BG : '#00000000')
+      .backgroundColor(this.entryDraft.mode === index ? CARD_BG : SOFT_BG)
       .shadow(this.entryDraft.mode === index ? { radius: 8, color: '#12000000', offsetY: 2 } : { radius: 0, color: '#00000000' })
       .stateEffect(true)
       .scale(this.pressableControlScale(`entry-mode-${index}`))
@@ -3150,7 +3187,7 @@ struct Index {
         .height(40)
         .padding({ left: 12, right: 12 })
         .borderRadius(13)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
         .scale(this.pressableControlScale(`select-field-${label}`))
         .animation({ duration: 150, curve: Curve.FastOutSlowIn })
         .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, `select-field-${label}`))
@@ -3170,7 +3207,7 @@ struct Index {
         .fontSize(15)
         .fontColor(TEXT_MAIN)
         .borderRadius(13)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
         .onChange(onChange)
     }
   }
@@ -3284,7 +3321,7 @@ struct Index {
     .height(26)
     .padding({ left: 8, right: 8 })
     .borderRadius(10)
-    .backgroundColor('#F7F8FB')
+    .backgroundColor(CONTROL_BG)
     .alignItems(VerticalAlign.Center)
   }
 
@@ -3314,7 +3351,7 @@ struct Index {
       .fontSize(15)
       .fontColor(TEXT_MAIN)
       .borderRadius(13)
-      .backgroundColor('#F8F6F2')
+      .backgroundColor(CONTROL_BG)
       .onChange(onChange)
   }
 
@@ -3333,7 +3370,7 @@ struct Index {
         .fontColor(TEXT_MAIN)
         .padding({ left: 12, right: 12 })
         .borderRadius(13)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
         .onChange(onChange)
     }
     .width('100%')
@@ -3361,7 +3398,7 @@ struct Index {
           .fontSize(22)
           .fontWeight(FontWeight.Bold)
           .fontColor(BLUE)
-          .backgroundColor('#F8F6F2')
+          .backgroundColor(CONTROL_BG)
           .stateEffect(true)
           .onClick(() => this.adjustNewDefaultBuyIn(-50))
 
@@ -3373,7 +3410,7 @@ struct Index {
           .fontColor(TEXT_MAIN)
           .textAlign(TextAlign.Center)
           .borderRadius(13)
-          .backgroundColor('#F8F6F2')
+          .backgroundColor(CONTROL_BG)
 
         Button() {
           SymbolGlyph($r('sys.symbol.plus'))
@@ -3387,7 +3424,7 @@ struct Index {
           .fontSize(22)
           .fontWeight(FontWeight.Bold)
           .fontColor(BLUE)
-          .backgroundColor('#F8F6F2')
+          .backgroundColor(CONTROL_BG)
           .stateEffect(true)
           .onClick(() => this.adjustNewDefaultBuyIn(50))
       }
@@ -3581,7 +3618,7 @@ struct Index {
     .justifyContent(FlexAlign.Center)
     .alignItems(HorizontalAlign.Center)
     .borderRadius(16)
-    .backgroundColor('#FBFAF7')
+    .backgroundColor(CONTROL_BG)
   }
 
   @Builder
@@ -3766,7 +3803,7 @@ struct Index {
     Column({ space: 18 }) {
       this.SectionTitle(title, range)
       if (this.trendPointIndexes(scope).length === 0) {
-        this.StatsEmptyState('暂无走势数据', '封账后会按每局输赢生成折线')
+        this.StatsEmptyState('暂无走势数据', '封账后会按每日输赢生成折线')
       } else {
         Stack() {
           Path({ commands: this.trendPathCommands(scope) })
@@ -3779,12 +3816,15 @@ struct Index {
             this.TrendPoint(Number(item), scope)
           }, (item: string) => item)
           ForEach(this.trendPointIndexes(scope), (item: string) => {
+            this.TrendAmountLabel(Number(item), scope)
+          }, (item: string) => `amount-${item}`)
+          ForEach(this.trendPointIndexes(scope), (item: string) => {
             this.TrendDateLabel(Number(item), scope)
           }, (item: string) => `date-${item}`)
         }
         .width('100%')
         .height(158)
-        .backgroundColor('#FBFAF7')
+        .backgroundColor(CONTROL_BG)
         .borderRadius(18)
       }
     }
@@ -3806,6 +3846,17 @@ struct Index {
       .backgroundColor(BLUE)
       .border({ width: 2, color: CARD_BG })
       .position({ x: this.trendPointX(index, scope) - 4, y: this.trendPointY(index, scope) - 4 })
+  }
+
+  @Builder
+  private TrendAmountLabel(index: number, scope: number = 0) {
+    Text(this.trendAmountTextAt(index, scope))
+      .width(54)
+      .fontSize(10)
+      .fontWeight(FontWeight.Bold)
+      .fontColor(this.trendScoreAt(index, scope) >= 0 ? GREEN : RED)
+      .textAlign(TextAlign.Center)
+      .position({ x: this.trendPointX(index, scope) - 27, y: Math.max(2, this.trendPointY(index, scope) - 24) })
   }
 
   @Builder
@@ -3855,7 +3906,7 @@ struct Index {
     .justifyContent(FlexAlign.Center)
     .alignItems(HorizontalAlign.Center)
     .borderRadius(18)
-    .backgroundColor('#FBFAF7')
+    .backgroundColor(CONTROL_BG)
   }
 
   @Builder
@@ -3865,16 +3916,6 @@ struct Index {
         .width(18)
         .fontSize(14)
         .fontColor(TEXT_SECOND)
-      Text(this.rankName(row).substring(0, 1))
-        .width(28)
-        .height(28)
-        .lineHeight(28)
-        .fontSize(13)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#FFFFFF')
-        .textAlign(TextAlign.Center)
-        .borderRadius(14)
-        .backgroundColor(this.rankAvatarColor(row))
       Column({ space: 3 }) {
         Text(this.rankName(row))
           .fontSize(15)
@@ -3924,41 +3965,105 @@ struct Index {
 
   @Builder
   private HistoryCard(session: GameSession) {
-    Column({ space: 10 }) {
-      Row() {
-        Text(session.title)
-          .fontSize(17)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(TEXT_MAIN)
-          .layoutWeight(1)
-        Text(this.sessionDateText(session))
-          .fontSize(12)
-          .fontColor(TEXT_SECOND)
+    Column({ space: 12 }) {
+      this.SectionTitle(session.title, this.sessionDateText(session))
+
+      Grid() {
+        GridItem() { this.HistoryPlayerChip(session, 0) }
+        GridItem() { this.HistoryPlayerChip(session, 1) }
+        GridItem() { this.HistoryPlayerChip(session, 2) }
+        GridItem() { this.HistoryPlayerChip(session, 3) }
       }
+      .columnsTemplate('1fr 1fr')
+      .rowsGap(8)
+      .columnsGap(8)
+      .width('100%')
+      .height(136)
+
+      Row({ space: 8 }) {
+        this.HistoryMetric('流水', `${this.currentRoundCountFor(session)} 笔`)
+        this.HistoryMetric('总入场', `${this.sessionBuyInTotal(session)}`)
+      }
+      .width('100%')
+
       Row({ space: 10 }) {
         this.HistoryCardResult('赢家', this.sessionWinnerSummary(session), GREEN)
         this.HistoryCardResult('输家', this.sessionLoserSummary(session), RED)
       }
       .width('100%')
-      Text(`${session.playerIds.length} 人 · ${this.sessionPlayerNames(session)}`)
-        .fontSize(13)
-        .fontColor(TEXT_SECOND)
-        .textAlign(TextAlign.Center)
-        .width('100%')
-      Text(`入场 ${this.sessionBuyInTotal(session)} · ${this.sessionBuyInSummary(session)}`)
-        .fontSize(13)
-        .fontColor(TEXT_SECOND)
-        .textAlign(TextAlign.Center)
-        .width('100%')
     }
     .width('100%')
     .padding(16)
     .borderRadius(22)
-    .backgroundColor('#F4F7FD')
+    .backgroundColor(CARD_BG)
+    .shadow({ radius: this.pressableCardShadowRadius(`history-${session.id}`), color: '#10000000', offsetY: this.pressableCardShadowOffsetY(`history-${session.id}`) })
     .scale(this.pressableCardScale(`history-${session.id}`))
     .animation({ duration: 160, curve: Curve.FastOutSlowIn })
     .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, `history-${session.id}`))
     .onClick(() => this.openHistorySheet(session.id))
+  }
+
+  @Builder
+  private HistoryPlayerChip(session: GameSession, index: number) {
+    Column({ space: 8 }) {
+      Row() {
+        Text(this.sessionPlayerNameFor(session, index, '玩家'))
+          .fontSize(15)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(TEXT_MAIN)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .layoutWeight(1)
+        Text('入场')
+          .fontSize(11)
+          .fontColor(TEXT_SECOND)
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+      Row() {
+        Text(this.sessionBuyInFor(session, index))
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(TEXT_MAIN)
+          .maxLines(1)
+        Text('分')
+          .fontSize(11)
+          .fontColor(TEXT_SECOND)
+          .margin({ left: 4, top: 3 })
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+    }
+    .height(64)
+    .width('100%')
+    .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Start)
+    .borderRadius(18)
+    .backgroundColor(CONTROL_BG)
+    .border({ width: 1, color: LINE })
+  }
+
+  @Builder
+  private HistoryMetric(label: string, value: string) {
+    Row() {
+      Text(label)
+        .fontSize(12)
+        .fontColor(BLUE)
+        .layoutWeight(1)
+      Text(value)
+        .fontSize(15)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(BLUE)
+        .maxLines(1)
+    }
+    .height(34)
+    .layoutWeight(1)
+    .padding({ left: 14, right: 14 })
+    .alignItems(VerticalAlign.Center)
+    .borderRadius(17)
+    .backgroundColor(BLUE_SOFT)
+    .border({ width: 1, color: '#DDE7FF' })
   }
 
   @Builder
@@ -3978,7 +4083,7 @@ struct Index {
     .justifyContent(FlexAlign.Center)
     .alignItems(HorizontalAlign.Center)
     .borderRadius(14)
-    .backgroundColor('#FBFAF7')
+    .backgroundColor(CONTROL_BG)
   }
 
   @Builder
@@ -4144,7 +4249,7 @@ struct Index {
               .fontColor(TEXT_SECOND)
               .textAlign(TextAlign.Center)
               .borderRadius(12)
-              .backgroundColor('#E1E7F0')
+              .backgroundColor(CONTROL_BG)
           }
             .width(24)
             .height(FRIEND_SEARCH_BAR_HEIGHT)
@@ -4231,8 +4336,8 @@ struct Index {
     .width('100%')
     .padding({ left: 16, right: 16, top: 14, bottom: 14 })
     .borderRadius(18)
-    .backgroundColor('#F8FAFF')
-    .border({ width: 1, color: '#DDE7FF' })
+    .backgroundColor(CONTROL_BG)
+    .border({ width: 1, color: LINE })
     .opacity(this.friendSearchContentOpacity())
     .translate({ y: this.friendSearchContentOffsetY() })
     .animation({ duration: 280, curve: Curve.FastOutSlowIn })
@@ -4501,34 +4606,6 @@ struct Index {
   @Builder
   private MinePage() {
     Column({ space: 18 }) {
-      Column({ space: 12 }) {
-        Text(`已封账 ${this.closedGameCount()} 局`)
-          .width('100%')
-          .fontSize(13)
-          .fontColor(TEXT_SECOND)
-          .textAlign(TextAlign.End)
-        Grid() {
-          GridItem() { this.MineStatCell('总输赢', formatMoney(this.closedCurrentTotal()), this.closedCurrentTotal() >= 0 ? GREEN : RED) }
-          GridItem() { this.MineStatCell('胜率', this.closedWinRateText(), TEXT_MAIN) }
-          GridItem() { this.MineStatCell('总牌局', `${this.closedGameCount()}`, TEXT_MAIN) }
-          GridItem() { this.MineStatCell('最大单局', formatMoney(this.maxClosedWin()), this.maxClosedWin() >= 0 ? GREEN : RED) }
-          GridItem() { this.MineStatCell('平均时长', this.averageClosedDurationText(), TEXT_MAIN) }
-          GridItem() { this.MineStatCell('同桌牌友', `${this.distinctClosedPartners()}`, TEXT_MAIN) }
-        }
-        .columnsTemplate('1fr 1fr')
-        .rowsGap(10)
-        .columnsGap(10)
-      }
-      .padding(16)
-      .width('100%')
-      .borderRadius(22)
-      .backgroundColor(CARD_BG)
-      .scale(this.pressableCardScale('mine-stats-card'))
-      .shadow({ radius: this.pressableCardShadowRadius('mine-stats-card'), color: '#10000000', offsetY: this.pressableCardShadowOffsetY('mine-stats-card') })
-      .animation({ duration: 150, curve: Curve.FastOutSlowIn })
-      .onTouch((event: TouchEvent) => this.handlePressableCardTouch(event, 'mine-stats-card'))
-      .onClick(() => this.cancelClearDataConfirmation())
-
       Column({ space: 0 }) {
         this.SettingRow('关于', 'v0.1')
       }
@@ -4582,7 +4659,7 @@ struct Index {
     .justifyContent(FlexAlign.Center)
     .alignItems(HorizontalAlign.Center)
     .borderRadius(16)
-    .backgroundColor('#F8FAFF')
+    .backgroundColor(CONTROL_BG)
   }
 
   @Builder
@@ -4746,33 +4823,34 @@ struct Index {
   @Builder
   private HistoryDetailContent(session: GameSession) {
     Column({ space: 16 }) {
-      Column({ space: 10 }) {
+      Column({ space: 12 }) {
         this.SectionTitle('牌局概览', this.sessionDateText(session))
-        Row() {
-          Text(`${session.status === 'settled' ? '已封账' : '进行中'} · ${session.playerIds.length} 人 · ${this.currentRoundCountFor(session)} 笔`)
-            .fontSize(13)
-            .fontColor(TEXT_SECOND)
-            .layoutWeight(1)
-          Text(`总入场 ${this.sessionBuyInTotal(session)}`)
-            .fontSize(13)
-            .fontColor(TEXT_SECOND)
+
+        this.HistoryOverviewTitle(session)
+
+        Grid() {
+          GridItem() { this.HistoryPlayerChip(session, 0) }
+          GridItem() { this.HistoryPlayerChip(session, 1) }
+          GridItem() { this.HistoryPlayerChip(session, 2) }
+          GridItem() { this.HistoryPlayerChip(session, 3) }
+        }
+        .columnsTemplate('1fr 1fr')
+        .rowsGap(8)
+        .columnsGap(8)
+        .width('100%')
+        .height(136)
+
+        Row({ space: 8 }) {
+          this.HistoryMetric('默认入场', this.sessionDefaultBuyInText(session))
+          this.HistoryMetric('总入场', `${this.sessionBuyInTotal(session)}`)
         }
         .width('100%')
+
         Row({ space: 10 }) {
           this.HistoryResultMini('大赢家', this.sessionWinnerSummary(session), GREEN)
           this.HistoryResultMini('大输家', this.sessionLoserSummary(session), RED)
         }
         .width('100%')
-        Text(`参与人：${this.sessionPlayerNames(session)}`)
-          .fontSize(13)
-          .fontColor(TEXT_SECOND)
-          .lineHeight(20)
-          .width('100%')
-        Text(`入场：${this.sessionBuyInSummary(session)}`)
-          .fontSize(13)
-          .fontColor(TEXT_SECOND)
-          .lineHeight(20)
-          .width('100%')
       }
     .padding(16)
     .borderRadius(22)
@@ -4831,6 +4909,30 @@ struct Index {
   }
 
   @Builder
+  private HistoryOverviewTitle(session: GameSession) {
+    Row() {
+      Column({ space: 3 }) {
+        Text(session.title)
+          .fontSize(17)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(TEXT_MAIN)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(`${this.sessionStatusText(session)} · ${session.playerIds.length} 人 · ${this.currentRoundCountFor(session)} 笔流水`)
+          .fontSize(12)
+          .fontColor(TEXT_SECOND)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+    }
+    .width('100%')
+    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+    .borderRadius(18)
+    .backgroundColor(CONTROL_BG)
+    .border({ width: 1, color: LINE })
+  }
+
+  @Builder
   private HistoryResultMini(label: string, value: string, color: string) {
     Column({ space: 5 }) {
       Text(label)
@@ -4847,7 +4949,7 @@ struct Index {
     .justifyContent(FlexAlign.Center)
     .alignItems(HorizontalAlign.Center)
     .borderRadius(16)
-    .backgroundColor('#F8FAFF')
+    .backgroundColor(CONTROL_BG)
   }
 
   @Builder
@@ -4873,7 +4975,7 @@ struct Index {
       .height(58)
       .padding({ left: 12, right: 12 })
       .borderRadius(16)
-      .backgroundColor('#F8FAFF')
+      .backgroundColor(CONTROL_BG)
     }
   }
 
@@ -4887,7 +4989,7 @@ struct Index {
         .fontColor(TEXT_MAIN)
         .padding({ left: 12 })
         .borderRadius(13)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
       TextInput({ text: amount })
         .height(40)
         .width(88)
@@ -4895,7 +4997,7 @@ struct Index {
         .fontColor(TEXT_MAIN)
         .textAlign(TextAlign.Center)
         .borderRadius(13)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
     }
   }
 
@@ -4917,7 +5019,7 @@ struct Index {
           .width(42)
           .height(42)
           .borderRadius(21)
-          .backgroundColor('#F8F6F2')
+          .backgroundColor(CONTROL_BG)
           .stateEffect(true)
           .onClick(() => this.adjustEditDefaultBuyIn(-50))
 
@@ -4929,7 +5031,7 @@ struct Index {
           .fontColor(TEXT_MAIN)
           .textAlign(TextAlign.Center)
           .borderRadius(13)
-          .backgroundColor('#F8F6F2')
+          .backgroundColor(CONTROL_BG)
 
         Button() {
           SymbolGlyph($r('sys.symbol.plus'))
@@ -4940,7 +5042,7 @@ struct Index {
           .width(42)
           .height(42)
           .borderRadius(21)
-          .backgroundColor('#F8F6F2')
+          .backgroundColor(CONTROL_BG)
           .stateEffect(true)
           .onClick(() => this.adjustEditDefaultBuyIn(50))
       }
@@ -4967,7 +5069,7 @@ struct Index {
         .fontColor(TEXT_MAIN)
         .padding({ left: 12, right: 12 })
         .borderRadius(13)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
         .onChange(onNameChange)
     }
     .width('100%')
@@ -4987,7 +5089,7 @@ struct Index {
         .width(42)
         .height(42)
         .borderRadius(21)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
         .stateEffect(true)
         .onClick(() => this.adjustEditPlayerBuyIn(0, -10))
 
@@ -4999,7 +5101,7 @@ struct Index {
         .fontColor(TEXT_MAIN)
         .textAlign(TextAlign.Center)
         .borderRadius(13)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
 
       Button() {
         SymbolGlyph($r('sys.symbol.plus'))
@@ -5010,7 +5112,7 @@ struct Index {
         .width(42)
         .height(42)
         .borderRadius(21)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
         .stateEffect(true)
         .onClick(() => this.adjustEditPlayerBuyIn(0, 10))
     }
@@ -5031,7 +5133,7 @@ struct Index {
         .width(42)
         .height(42)
         .borderRadius(21)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
         .stateEffect(true)
         .onClick(() => this.adjustEditPlayerBuyIn(1, -10))
 
@@ -5043,7 +5145,7 @@ struct Index {
         .fontColor(TEXT_MAIN)
         .textAlign(TextAlign.Center)
         .borderRadius(13)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
 
       Button() {
         SymbolGlyph($r('sys.symbol.plus'))
@@ -5054,7 +5156,7 @@ struct Index {
         .width(42)
         .height(42)
         .borderRadius(21)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
         .stateEffect(true)
         .onClick(() => this.adjustEditPlayerBuyIn(1, 10))
     }
@@ -5075,7 +5177,7 @@ struct Index {
         .width(42)
         .height(42)
         .borderRadius(21)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
         .stateEffect(true)
         .onClick(() => this.adjustEditPlayerBuyIn(2, -10))
 
@@ -5087,7 +5189,7 @@ struct Index {
         .fontColor(TEXT_MAIN)
         .textAlign(TextAlign.Center)
         .borderRadius(13)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
 
       Button() {
         SymbolGlyph($r('sys.symbol.plus'))
@@ -5098,7 +5200,7 @@ struct Index {
         .width(42)
         .height(42)
         .borderRadius(21)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
         .stateEffect(true)
         .onClick(() => this.adjustEditPlayerBuyIn(2, 10))
     }
@@ -5119,7 +5221,7 @@ struct Index {
         .width(42)
         .height(42)
         .borderRadius(21)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
         .stateEffect(true)
         .onClick(() => this.adjustEditPlayerBuyIn(3, -10))
 
@@ -5131,7 +5233,7 @@ struct Index {
         .fontColor(TEXT_MAIN)
         .textAlign(TextAlign.Center)
         .borderRadius(13)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
 
       Button() {
         SymbolGlyph($r('sys.symbol.plus'))
@@ -5142,7 +5244,7 @@ struct Index {
         .width(42)
         .height(42)
         .borderRadius(21)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
         .stateEffect(true)
         .onClick(() => this.adjustEditPlayerBuyIn(3, 10))
     }
@@ -5198,13 +5300,13 @@ struct Index {
       }
       .width('100%')
 
-      Column({ space: 0 }) {
+      Column({ space: 8 }) {
         ForEach(this.entryPickerUsers(), (user: User) => {
           this.EntryPlayerPickerOption(user)
         }, (user: User) => user.id)
       }
       .width('100%')
-      .constraintSize({ maxHeight: 320 })
+      .constraintSize({ maxHeight: 356 })
     }
     .width('100%')
     .padding({ left: 22, right: 22, top: 22, bottom: 28 })
@@ -5235,7 +5337,7 @@ struct Index {
     .height(54)
     .padding({ left: 14, right: 14 })
     .borderRadius(18)
-    .backgroundColor('#F8FAFF')
+    .backgroundColor(CONTROL_BG)
     .scale(this.pressableControlScale(`entry-picker-${user.id}`))
     .animation({ duration: 150, curve: Curve.FastOutSlowIn })
     .onTouch((event: TouchEvent) => this.handlePressableControlTouch(event, `entry-picker-${user.id}`))
@@ -5292,7 +5394,7 @@ struct Index {
     .width('100%')
     .padding({ top: 28, bottom: 28, left: 16, right: 16 })
     .borderRadius(16)
-    .backgroundColor('#F8FAFF')
+    .backgroundColor(CONTROL_BG)
   }
 
   @Builder
@@ -5344,7 +5446,7 @@ struct Index {
         .fontColor(TEXT_MAIN)
         .padding({ left: 12, right: 12 })
         .borderRadius(13)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
@@ -5388,7 +5490,7 @@ struct Index {
       .width('100%')
       .padding({ left: 12, right: 4 })
       .borderRadius(13)
-      .backgroundColor('#F8F6F2')
+      .backgroundColor(CONTROL_BG)
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
@@ -5407,7 +5509,7 @@ struct Index {
         .width(42)
         .height(42)
         .borderRadius(21)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
         .stateEffect(true)
         .onClick(() => this.adjustNewPlayerBuyIn(0, -10))
 
@@ -5419,7 +5521,7 @@ struct Index {
         .fontColor(TEXT_MAIN)
         .textAlign(TextAlign.Center)
         .borderRadius(13)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
 
       Button() {
         SymbolGlyph($r('sys.symbol.plus'))
@@ -5430,7 +5532,7 @@ struct Index {
         .width(42)
         .height(42)
         .borderRadius(21)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
         .stateEffect(true)
         .onClick(() => this.adjustNewPlayerBuyIn(0, 10))
     }
@@ -5451,7 +5553,7 @@ struct Index {
         .width(42)
         .height(42)
         .borderRadius(21)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
         .stateEffect(true)
         .onClick(() => this.adjustNewPlayerBuyIn(1, -10))
 
@@ -5463,7 +5565,7 @@ struct Index {
         .fontColor(TEXT_MAIN)
         .textAlign(TextAlign.Center)
         .borderRadius(13)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
 
       Button() {
         SymbolGlyph($r('sys.symbol.plus'))
@@ -5474,7 +5576,7 @@ struct Index {
         .width(42)
         .height(42)
         .borderRadius(21)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
         .stateEffect(true)
         .onClick(() => this.adjustNewPlayerBuyIn(1, 10))
     }
@@ -5495,7 +5597,7 @@ struct Index {
         .width(42)
         .height(42)
         .borderRadius(21)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
         .stateEffect(true)
         .onClick(() => this.adjustNewPlayerBuyIn(2, -10))
 
@@ -5507,7 +5609,7 @@ struct Index {
         .fontColor(TEXT_MAIN)
         .textAlign(TextAlign.Center)
         .borderRadius(13)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
 
       Button() {
         SymbolGlyph($r('sys.symbol.plus'))
@@ -5518,7 +5620,7 @@ struct Index {
         .width(42)
         .height(42)
         .borderRadius(21)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
         .stateEffect(true)
         .onClick(() => this.adjustNewPlayerBuyIn(2, 10))
     }
@@ -5539,7 +5641,7 @@ struct Index {
         .width(42)
         .height(42)
         .borderRadius(21)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
         .stateEffect(true)
         .onClick(() => this.adjustNewPlayerBuyIn(3, -10))
 
@@ -5551,7 +5653,7 @@ struct Index {
         .fontColor(TEXT_MAIN)
         .textAlign(TextAlign.Center)
         .borderRadius(13)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
 
       Button() {
         SymbolGlyph($r('sys.symbol.plus'))
@@ -5562,7 +5664,7 @@ struct Index {
         .width(42)
         .height(42)
         .borderRadius(21)
-        .backgroundColor('#F8F6F2')
+        .backgroundColor(CONTROL_BG)
         .stateEffect(true)
         .onClick(() => this.adjustNewPlayerBuyIn(3, 10))
     }
@@ -5580,7 +5682,7 @@ struct Index {
       .fontColor(active ? BLUE : TEXT_MAIN)
       .padding({ left: 14, right: 14 })
       .borderRadius(17)
-      .backgroundColor(active ? '#00FFFFFF' : '#F4F1EC')
+      .backgroundColor(active ? CARD_BG : CONTROL_BG)
       .border({ width: active ? 1 : 0, color: BLUE })
   }
 

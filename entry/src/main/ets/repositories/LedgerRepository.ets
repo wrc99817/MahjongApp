@@ -1,6 +1,8 @@
+import common from '@ohos.app.ability.common';
 import { GameSession, Group, GroupMember, LedgerOperation, RoundRecord, User } from '../common/Models';
 
 export interface LedgerRepository {
+  initialize(context: common.UIAbilityContext): void;
   currentUser(): User;
   listUsers(): User[];
   listGroups(): Group[];
